@@ -1,0 +1,30 @@
+ROUTINE statcsp [Type=INC]
+ #define DEBUG 0
+ #if $$$DEBUG=1
+ #define DEBUGCODE(%1) %1
+ #else
+ #define DEBUGCODE(%1)
+ #endif
+#; cos job index
+ #define JID $zu(61)
+ #define usmGet(%1,%2) $zu(133,6,%1,%2)
+ #define usmSet(%1,%2,%3) $zu(133,6,%1,%2,%3)
+ #define usmInc(%1,%2) $zu(133,5,%1,%2)
+ 
+ #define usmCSPStat 1
+ #define usmReqId 2
+ #define usmTrySelf 8
+ #define usmSize 16
+#; bit for CSPStat
+ #define CSPLogFile 1
+ #define CSPLogGlobal 2
+ #define CSPSessionTrack 4
+#; list index for stat.csp.session
+ #define CspSessionStartTime 1
+ #define CspSessionEndTime 2
+ #define CspSessionStartURL 3
+ #define CspSessionEndURL 4
+ #define CspSessionDuration 5
+ #define CspSessionClientIp 6
+ #define CspSessionClientPort 7
+ #define NanoToMicroSecPrecision(%1) %1\1000/1000000

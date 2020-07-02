@@ -1,0 +1,931 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Export generator="Cache" version="25">
+<Class name="stat.csp">
+<Description><![CDATA[
+csp server stat<br/>
+used shm user metrics<br/>
+for config is used ^|"%SYS"|SYS("stat","csp")?!
+to do: avoid stat.lib usage]]></Description>
+<IncludeCode>statcsp</IncludeCode>
+<Super>%CSP.SessionEvents</Super>
+<TimeCreated>64902,84679.029233</TimeCreated>
+
+<Property name="log">
+<Type>%String</Type>
+<Parameter name="MAXLEN" value="512"/>
+</Property>
+
+<Property name="logdir">
+<Type>%String</Type>
+<Parameter name="MAXLEN" value="512"/>
+</Property>
+
+<Property name="inith">
+<Type>%String</Type>
+</Property>
+
+<Property name="logtimeout">
+<Description>
+used to query log in order write in log file under lock, avoid intermix messages from different processes</Description>
+<Type>%String</Type>
+</Property>
+
+<Property name="id">
+<Type>%String</Type>
+</Property>
+
+<Property name="gwReqId">
+<Type>%String</Type>
+</Property>
+
+<Property name="zh">
+<Type>%String</Type>
+</Property>
+
+<Property name="GloRef">
+<Type>%Integer</Type>
+</Property>
+
+<Property name="Tokens">
+<Type>%Integer</Type>
+</Property>
+
+<Property name="GloUpd">
+<Type>%Integer</Type>
+</Property>
+
+<Property name="PhyRd">
+<Type>%Integer</Type>
+</Property>
+
+<Property name="IsPhyRd">
+<Type>%Boolean</Type>
+</Property>
+
+<Property name="cspapp">
+<Type>%String</Type>
+</Property>
+
+<Property name="tsStart">
+<Type>%String</Type>
+</Property>
+
+<Property name="url">
+<Type>%String</Type>
+</Property>
+
+<Property name="docpu">
+<Description>
+do process cpu stat</Description>
+<Type>%String</Type>
+</Property>
+
+<Property name="cpudev">
+<Type>%String</Type>
+</Property>
+
+<Property name="dcpu">
+<Type>%String</Type>
+</Property>
+
+<Property name="GuessSelf">
+<Description>
+it is expected that self at constant oref for all processes</Description>
+<Type>%String</Type>
+</Property>
+
+<Property name="EventClass">
+<Description>
+original EventClass for csp application</Description>
+<Type>%String</Type>
+</Property>
+
+<Property name="EventClasses">
+<Description>
+saved original EventClass for csp applications</Description>
+<Type>%String</Type>
+<MultiDimensional>1</MultiDimensional>
+</Property>
+
+<Property name="CSPCHD">
+<Description>
+value of CSPCHD from %SYS.cspServer* got by hack trick</Description>
+<Type>%String</Type>
+</Property>
+
+<Property name="dbdir">
+<Description>
+dbdir to put data</Description>
+<Type>%String</Type>
+</Property>
+
+<Property name="fsdlm">
+<Description>
+file system delimiter</Description>
+</Property>
+
+<Property name="platform">
+<Description>
+plaform name winnt,linux, ...</Description>
+<Type>%String</Type>
+</Property>
+
+<Property name="cspSessionStat">
+<Description><![CDATA[
+collect csp sessions statistics @CtlGlo@("csp","session")<br/>
+^|CACHE|stat.csp(sessionid)
+it is not clear motivation to have this]]></Description>
+<Type>%Boolean</Type>
+</Property>
+
+<Method name="OnStartRequest">
+<Description><![CDATA[
+sessionid is argument it is proposal, it is expected from http header cookie, it might be changed on csp server processing<br/>
+causious %session is underfined<br/>]]></Description>
+<ClassMethod>1</ClassMethod>
+<FormalSpec>sessionid:%String</FormalSpec>
+<ReturnType>%Status</ReturnType>
+<Implementation><![CDATA[
+ set $ztrap="error"
+ try { set usm=-10 set usm=..usm() } catch {}
+ if $G(%request)'="" && ($isobject(%request)) { set url=%request.URL}
+ $$$DEBUGCODE(do $zu(9,"",..%ClassName(1)_" OnStartRequest usm="_usm_",%request="_$G(%request)_",%session="_$G(%session)_",sessionid="_$G(sessionid)_",url="_$G(url) ))
+ if usm < 1 quit $$$OK
+ try {
+   set retec=$$$OK
+#;   set staton=$zu(133,6,usm,1)
+#;   set staton=$$$usmGetCSPFileLog(usm)
+   set staton=$$$usmGet(usm,$$$usmCSPStat)
+   set stat=""
+   if staton {
+     set stat=..self()
+     $$$DEBUGCODE(do $zu(9,"",..%ClassName(1)_" OnStartRequest self="_$G(stat)))
+     if stat'="" {
+#; dirty hack to get CSPCHD from %SYS.cspServer*
+       try {
+         set n=$zu(41)-1 for i=n:-1:1 { 
+         try { set CSPCHD=$zu(43,i,"CSPCHD") } catch {}
+         quit:$D(CSPCHD)
+         try { set CSPCHD=$zu(43,i,"~CSPCHD") } catch {}
+         quit:$D(CSPCHD) }
+       } catch { do $zu(9,"",..%ClassName(1)_" OnStartRequest $ZE="_$ZE) }
+#; end of dirty hack
+       if $D(CSPCHD) set stat.CSPCHD=CSPCHD
+       $$$DEBUGCODE(do $zu(9,"",..%ClassName(1)_" OnStartRequest sessionid="_$E($G(CSPCHD),13,22)_",CSPCHD="_$G(CSPCHD)))
+       set h=$h if $P(stat.inith,",",1)'=$P(h,",",1) do stat.switchlog(h)
+       set log=stat.log
+       set logtimeout=stat.logtimeout
+       set id=$$$usmInc(usm,$$$usmReqId) // increment csp server stat http request id
+       set stat.id=id
+       set stat.gwReqId=%request.RequestId
+       set cspapp=%request.Application
+       if cspapp'="" {
+          set cspapp2=cspapp if $E(cspapp,$L(cspapp))="/" set cspapp2=$E(cspapp,1,$L(cspapp)-1)
+          set EventClass=$G(stat.EventClasses(cspapp2))
+       } else { set EventClass="" }
+       set stat.cspapp=cspapp
+       set stat.EventClass=EventClass
+       $$$DEBUGCODE(do $zu(9,"",..%ClassName(1)_" OnStartRequest reqid="_id_" cspapp="_cspapp_" EventClass="_EventClass))
+       set jid=$$$JID
+       if $isobject($G(%session)) { set sessionid=%session.SessionId set application=%session.Application }
+       else { set application="" }
+       if $G(sessionid)="" set sessionid=$E(stat.CSPCHD,13,22)
+       set tsStart=$zdt($h,3)_"."_$P($zts,".",2),stat.tsStart=tsStart
+       if $zboolean(staton,$$$CSPLogFile,1) {
+         set io=$io set zh=$zh lock +^%stat.csp.logfile:logtimeout if $test {
+           open log:("WSA"):logtimeout if $test {
+             set zh2=$zh use log
+             W tsStart_","_id_",s,"_$G(sessionid)_","_%request.RequestId_","_jid_","_$J_","_%request.URL_","_$znspace_","_%request.Class_","_cspapp_","_
+               %request.Method_","_%request.GetCgiEnv("REMOTE_ADDR")_","_%request.GetCgiEnv("REMOTE_PORT")_","_
+               %request.GetCgiEnv("SERVER_ADDR")_","_%request.GetCgiEnv("SERVER_PORT")_"," _application_$C(10)
+             close log lock -^%stat.csp.logfile use io
+             set dt=$zh-zh2
+             $$$DEBUGCODE(do $zu(9,"",..%ClassName(1)_" OnStartRequest write in CSP log file dt="_dt))
+           }
+         }
+         else {
+           do $zu(9,"",..%ClassName(1)_" OnStartRequest unable get lock during "_logtimeout_" for writing in CSP log file")
+         }
+       }
+       if $zboolean(staton,$$$CSPLogGlobal,1) {// prepare data for csp logging in global at runtime
+       }
+       set stat.zh=$zh set stat.Tokens=$zu(61,8,jid) set stat.GloRef=$zu(61,9,jid)
+       if stat.IsPhyRd { set stat.GloUpd=$zu(61,35,jid) set stat.PhyRd=$zu(61,34,jid) }
+       if stat.docpu=1 { set io=$io set t="" try { use stat.cpudev:0 read t } catch {} set stat.dcpu=t use io }
+     } else { do $zu(9,"",..%ClassName(1)_" csp stat singleton not found") }
+   }
+ } catch e { do $zu(9,"",..%ClassName(1)_" OnStartRequest $ZE="_$ZE) }
+ try { if stat.EventClass'="" { set retec=$classmethod(stat.EventClass,"OnStartRequest") } } catch e {}
+ Quit retec
+error
+ do $ZU(9,"","stat.csp $ZE="_$ZE)
+ quit retec
+]]></Implementation>
+</Method>
+
+<Method name="OnEndRequest">
+<ClassMethod>1</ClassMethod>
+<ReturnType>%Status</ReturnType>
+<Implementation><![CDATA[
+ set $ztrap="error"
+ set retec=$$$OK
+ try { set usm=-10 set usm=..usm() } catch {}
+ $$$DEBUGCODE(do $zu(9,"",..%ClassName(1)_" OnEndRequest usm="_usm_",tryself="_$case(usm'<1,1:$$$usmGet(usm,$$$usmTrySelf),:"")_",%session="_$G(%session)_",sessionid="_$case($isobject($G(%session)),1:%session.SessionId,:"")_",%request="_$G(%request)))
+ if usm<1 quit $$$OK
+ try {
+   set staton=$$$usmGet(usm,$$$usmCSPStat)
+   if staton {
+      set stat=..self()
+      if stat'="" && $isobject(stat) && ($classname(stat)=..%ClassName(1) ) {
+        if stat.docpu {
+          set io=$io set t2="" try { use stat.cpudev:0 read t2 } catch {}
+          if t2'="" {
+            set t1=stat.dcpu
+            set stat.dcpu=$LB($$$NanoToMicroSecPrecision($P(t2," ",1)-$P(t1," ",1)),$$$NanoToMicroSecPrecision($P(t2," ",2)-$P(t1," ",2)),$P(t2," ",3)-$P(t1," ",3))
+          }
+        }
+        set h=$h if $P(stat.inith,",",1)'=$P(h,",",1) do stat.switchlog(h)
+        set log=stat.log
+        set logtimeout=stat.logtimeout
+        set jid=$$$JID
+        if $isobject($G(%session)) && ($classname(%session)="%CSP.Session") {
+          set sessionid=%session.SessionId
+          set licenseid=%session.LicenseId
+          set sessionNew=%session.NewSession
+          set sessionEnd=%session.EndSession
+        }
+        set tsEnd=$zdt($h,3)_"."_$P($zts,".",2)
+        set duration=$zh-stat.zh
+        set tokens=$zu(61,8,jid)-stat.Tokens
+        set gloref=$zu(61,9,$zu(61))-stat.GloRef
+        if stat.IsPhyRd { set gloupd=$zu(61,35,$zu(61))-stat.GloUpd set PhyRd=$zu(61,34,$zu(61))-stat.PhyRd }
+        else { set gloupd="",PhyRd=""}
+        if $zboolean(staton,$$$CSPLogFile,1) {
+          set io=$io lock +^%stat.csp.logfile:logtimeout if $test {
+            open log:("WSA"):logtimeout if $test {
+              use log
+              W stat.tsStart_","_stat.id_",e,"_$G(sessionid)_","_$G(licenseid)_","_$G(sessionNew)_","_$G(sessionEnd)_","_
+               duration_","_tokens_","_gloref_","_gloupd_","_PhyRd_","_$LTS(stat.dcpu)_$C(10)
+               close log lock -^%stat.csp.logfile use io
+            }
+          }
+        }
+        if $zboolean(staton,$$$CSPLogGlobal,1) {
+           set dcpu=stat.dcpu
+           set ^|"^^"_stat.dbdir|stat.csp(stat.id)=$LB(,$G(sessionid),$G(sessionNew),$G(sessionEnd),$E(stat.CSPCHD,13,22),licenseid,stat.gwReqId,duration,
+             stat.tsStart/*9*/,tsEnd/*10*/,%request.URL/*11*/,%request.Method/*12*/,$znspace/*13*/,%request.Class/*14*/,stat.cspapp/*15*/,
+             %request.GetCgiEnv("REMOTE_ADDR")/*16*/,%request.GetCgiEnv("REMOTE_PORT")/*17*/,
+             %request.GetCgiEnv("SERVER_ADDR")/*18*/,%request.GetCgiEnv("SERVER_PORT")/*19*/,
+             tokens/*20*/,gloref/*21*/,gloupd/*22*/,PhyRd/*23*/,$LG(dcpu,1)/*24*/,$LG(dcpu,2)/*25*/,$LG(dcpu,3)/*26*/)
+        }
+      }
+      else { do $zu(9,"",..%ClassName(1)_"OnEndRequest csp stat singleton not found self="_self) }
+   }
+   try { if stat.EventClass'="" { set retec=$classmethod(stat.EventClass,"OnEndRequest") } } catch e {}
+ } catch e { do $zu(9,"",..%ClassName(1)_" $ZE="_$ZE) }
+ Quit retec
+error
+ do $zu(9,"","stat.csp $ZE="_$ZE)
+ quit retec
+]]></Implementation>
+</Method>
+
+<Method name="OnStartSession">
+<Description>
+1 time session start
+2 time session end
+3 url session start
+4 url session end
+5 session duration ?
+6 client ip
+7 client port</Description>
+<ClassMethod>1</ClassMethod>
+<Implementation><![CDATA[
+ set $ztrap="error"
+ $$$DEBUGCODE(do $zu(9,"",..%ClassName(1)_" OnStartSession %session="_$G(%session)_", sessionid="_$case($isobject($G(%session)),1:%session.SessionId,:"")))
+ set ret=$$$OK set stat=..self()
+ try { set um=-10 set usm=..usm() } catch {}
+ $$$DEBUGCODE(do $zu(9,"",..%ClassName(1)_" OnStartSession self="_$G(stat)_",usm="_usm_$case(usm'<1,1:",track session="_$zboolean($$$usmGet(usm,$$$usmCSPStat),4,1),:"") ))
+ if usm'<1 && $zboolean($$$usmGet(usm,$$$usmCSPStat),$$$CSPSessionTrack,1) && ($G(%session)'="") && ($isobject(%session)) {
+    set sessionid=%session.SessionId if sessionid'="" {
+      do $zu(9,"",..%ClassName(1)_" OnStartSession sessionid="_sessionid)
+      set data=$G(^|"^^"_$zu(12)_"cachelib/"|stat.csp.session(sessionid))
+      set $LI(data,$$$CspSessionStartTime)=$zdt($h,3)
+      set $LI(data,$$$CspSessionEndTime)=""
+      set $LI(data,$$$CspSessionEndTime)=%request.URL
+      set $LI(data,$$$CspSessionEndURL)=""
+      set $LI(data,$$$CspSessionDuration)=""
+      set $LI(data,$$$CspSessionClientIp)=%request.GetCgiEnv("REMOTE_ADDR")
+      set $LI(data,$$$CspSessionClientPort)=%request.GetCgiEnv("REMOTE_PORT")
+      if sessionid'="" set ^|"^^"_$zu(12)_"cache"|stat.csp.sessions(sessionid)=data
+      if $G(stat)'="" && $isobject(stat) && ..%ClassName(1)=$classname(stat) {
+        if $G(%session)'="" && $isobject(%session) { set cspapp=%session.Application }
+         else { set cspapp="" }
+        if $E(cspapp,$L(cspapp))="/" set cspapp=$E(cspapp,1,$L(cspapp)-1)
+        if cspapp'="" set self.EventClass=$G(^SYS("stat","csp","EventClass",cspapp))
+      }
+    }
+ }
+ try { if stat.EventClass'="" { set ret=$classmethod(stat.EventClass,"OnStartSession") } } catch e {}
+ Quit ret
+error
+ do $ZU(9,"","stat.csp $ZE="_$ZE)
+ quit ret
+]]></Implementation>
+</Method>
+
+<Method name="OnEndSession">
+<Description><![CDATA[
+%request might be undefined<br/>]]></Description>
+<ClassMethod>1</ClassMethod>
+<Implementation><![CDATA[
+ set $ztrap="error"
+ set ret=$$$OK set stat=..self()
+ $$$DEBUGCODE(do $zu(9,"",..%ClassName(1)_" OnEndSession %session="_$G(%session)_", sessionid="_$case($isobject($G(%session)),1:%session.SessionId,:"")_",%request="_$G(%request)_",self="_$G(self) ))
+ try { if stat.EventClass'="" { set ret=$classmethod(stat.EventClass,"OnEndSession") } } catch e {}
+ try { set usm=-10 set usm=..usm() } catch {}
+ $$$DEBUGCODE(do $zu(9,"",..%ClassName(1)_" OnEndSession %session="_$G(%session)_", self="_$G(stat)_",usm="_usm_$case(usm'<1,1:",track session="_ $zu(133,6,usm,7))))
+ if usm'<1 && $zboolean($$$usmGet(usm,$$$usmCSPStat),$$$CSPSessionTrack,1) && ($G(%session)'="") && ($isobject(%session)) {
+   set sessionid=%session.SessionId if sessionid'="" {
+     set data=$G(^|"^^"_$zu(12)_"cache"|stat.csp.session(sessionid))
+     set $LI(data,$$$CspSessionEndTime)=$zdt($h,3)
+     set $LI(data,$$$CspSessionEndURL)=$case($isobject($G(%request)),1:%request.URL,:"")
+     set ^|"^^"_$zu(12)_"cache"|stat.csp.session(sessionid)=data
+   }
+ }
+ Quit
+error
+ do $ZU(9,"","stat.csp $ZE="_$ZE)
+ quit ret
+]]></Implementation>
+</Method>
+
+<Method name="OnLogin">
+<ClassMethod>1</ClassMethod>
+<ReturnType>%Status</ReturnType>
+<Implementation><![CDATA[
+ set ret=$$$OK set self=..self()
+ if $G(%session)'="" && $isobject(%session) {
+  set cspapp=%session.SessionId
+  set newsession=%session.NewSession
+ }
+ if $G(%request)'="" && $isobject(%request) {
+   set url=%request.URL
+ }
+ $$$DEBUGCODE(do $zu(9,"",..%ClassName(1)_" OnLogin %request="_$G(%request)_",%session="_$G(%session)_",self="_$G(self)_",url="_$G(url)))
+ try { if self.EventClass'="" { set ret=$classmethod(self.EventClass,"OnLogin") } } catch e {}
+ Quit $$$OK
+]]></Implementation>
+</Method>
+
+<Method name="OnLogout">
+<ClassMethod>1</ClassMethod>
+<ReturnType>%Status</ReturnType>
+<Implementation><![CDATA[
+ set ret=$$$OK set stat=..self()
+ $$$DEBUGCODE(do $zu(9,"",..%ClassName(1)_" OnLogout %session="_$G(%session)_",self="_$G(self) ))
+ try { if stat.EventClass'="" { set ret=$classmethod(stat.EventClass,"OnLogout") } } catch e {}
+ Quit $$$OK
+]]></Implementation>
+</Method>
+
+<Method name="OnTimeout">
+<ClassMethod>1</ClassMethod>
+<Implementation><![CDATA[
+ set ret=$$$OK set stat=..self()
+ $$$DEBUGCODE(do $zu(9,"",..%ClassName(1)_" OnTimeOut %session="_$G(%session)_",self="_$G(stat) ))
+ try { if stat.EventClass'="" { set ret=$classmethod(stat.EventClass,"OnTimeout") } } catch e {}
+ Quit
+]]></Implementation>
+</Method>
+
+<Method name="OnApplicationChange">
+<ClassMethod>1</ClassMethod>
+<FormalSpec>oldapp:%String,newapp:%String</FormalSpec>
+<ReturnType>%Status</ReturnType>
+<Implementation><![CDATA[
+ $$$DEBUGCODE(do $zu(9,"",..%ClassName(1)_" OnApplicationChange oldapp="_$G(oldapp)_" newapp="_$G(newapp)))
+ set ret=$$$OK set self=..self()
+ $$$DEBUGCODE(do $zu(9,"",..%ClassName(1)_" OnApplicationChange %request="_$G(%request)_",%session="_$G(%session)_",self="_$G(self)))
+ try { if self.EventClass'="" { set ret=$classmethod(self.EventClass,"OnApplicationChange",oldapp,newapp) } } catch e {}
+ if $isobject(self) && $classname(self)_..%ClassName(1) { set self.cspapp=$G(newapp) }
+ Quit $$$OK
+]]></Implementation>
+</Method>
+
+<Method name="new">
+<Description>
+create instance and initialize context</Description>
+<ClassMethod>1</ClassMethod>
+<Implementation><![CDATA[
+ try {
+   set self=..%New()
+   set x=$zobjincref(self)
+   try { set self.IsPhyRd=1 set x=$zu(61,8,$zu(61)) } catch e { set self.IsPhyRd=0 }
+   set CtlGlo=$$CtlGlo^stat.lib
+   set self.logdir=$$logdir^stat.lib
+#; if stat logodir is not defined user mgr directory
+   if self.logdir="" set self.logdir=$zu(12)
+   set h=$h
+#; name of log file
+   set log=..log(self.logdir,"stat_csp",h)
+   $$$DEBUGCODE(do $zu(9,"","stat.csp new log="_log))
+   set self.inith=h
+   set logtimeout=0.01
+   try { if $$unix^stat.lib do sumask^stat.lib("rw-rw-r--") } catch e { do $zu(9,"",$ZNAME_" $ZE="_$ZE)}
+   if '##class(%File).Exists(log) {
+     lock +^stat.csp.logfile
+     open log:("NWS"):logtimeout
+     set io=$io use log
+     W self.hdr1()_$C(10)
+     W self.hdr2()_$C(10)
+     lock -^%stat.csp.logfile
+     close log use io
+   }
+   set self.log=log
+   set self.logtimeout=logtimeout
+   if $G(%session)'="" && $isobject(%session) { set cspapp=%session.Application }
+   else { set cspapp="" }
+   if $isobject($G(%request)) && $classname(%request)="%CSP.Request" && ($G(cpsapp)="") { set cspapp=%request.Application }
+   else { set cspapp="" }
+   if $E(cspapp,$L(cspapp))="/" set cspapp=$E(cspapp,1,$L(cspapp)-1)
+   $$$DEBUGCODE(do $zu(9,"","stat.csp new cspapp="_cspapp))
+   merge self.EventClasses=@CtlGlo@("csp","EventClass")
+   if cspapp'="" { set self.EventClass=$G(self.EventClasses(cspapp)) }
+   set self.fsdlm=$E($zu(12),$L($zu(12)))
+   set self.dbdir=$zu(12)_self.fsdlm_"cache"
+   set platform=$$platform^stat.lib
+   set self.docpu=0
+   if platform="linux" {
+     set cpudev="/proc/"_$J_"/schedstat"
+     open cpudev:("RS"):0.01 if $test { set self.docpu=1 set self.cpudev=cpudev } else { set self.docpu=0 }
+   }
+   #;do $zu(9,"",..%ClassName(1)_" new docpu="_self.docpu_",platform="_platform_",cpudev="_cpudev)
+   set self.platform=platform
+ }
+ catch e { do $zu(9,"",..%ClassName(1)_" new() $ZE="_$ZE) }
+ quit self
+]]></Implementation>
+</Method>
+
+<Method name="switchlog">
+<FormalSpec>h:%String</FormalSpec>
+<Implementation><![CDATA[
+ set log=..log(..logdir,"stat_csp",h)
+ set ..log=log
+ set ..inith=h
+ set logtimeout=..logtimeout
+ if ##class(%File).Exists(log) quit
+ set io=$io lock +^%stat.csp.logfile:logtimeout if $test {
+   open log:("WSN"):logtimeout use log
+   W ..hdr1()_$C(10)
+   W ..hdr2()_$C(10)
+   close log lock -^%stat.csp.logfile use io
+ }
+ #; lock failes
+ else {}
+]]></Implementation>
+</Method>
+
+<Method name="hdr1">
+<ReturnType>%String</ReturnType>
+<Implementation><![CDATA[ quit "time,id,stage=s,sessionid,gwReqId,jid,pid,url,ns,class,cspapp,method,cliip,cliport,websrvip,webserverport"
+]]></Implementation>
+</Method>
+
+<Method name="hdr2">
+<ReturnType>%String</ReturnType>
+<Implementation><![CDATA[ quit "time,id,stage=e,sessionid,licenseid,sessionNew,sessionEnd,dt,tokens,gloref,"_$case(self.IsPhyRd,0:"",:"gloupd,phyrd")
+]]></Implementation>
+</Method>
+
+<Method name="delete">
+<Description>
+decrement ref to stat.csp oref, if there is no var to this oref object discarded</Description>
+<ClassMethod>1</ClassMethod>
+<Implementation><![CDATA[
+  set oref=..findself()
+  if oref'="" set x=$zobjdecref(oref)
+]]></Implementation>
+</Method>
+
+<Method name="deleteall">
+<Description>
+like delete() but scan all objects in process</Description>
+<ClassMethod>1</ClassMethod>
+<Implementation><![CDATA[
+ set classname=..%ClassName(1)
+ set oref="" for {
+    set oref=$zobjnext(oref) quit:oref=""
+    if $classname(oref)=classname { try {set x=$zobjdecref(oref) } catch {} }
+ }
+]]></Implementation>
+</Method>
+
+<Method name="self">
+<Description>
+find or create self</Description>
+<ClassMethod>1</ClassMethod>
+<Implementation><![CDATA[
+ try {
+   set self="" set classname=..%ClassName(1)
+   set usm=..usm() if usm'<1 { set tryself=$$$usmGet(usm,$$$usmTrySelf) }
+   try { set self=$zobjref(tryself) } catch { set self="" }
+   if $isobject(self) && ($classname(self)=classname) goto exit
+   set self=..findself(classname)
+   if self'="" set x=$$$usmSet(usm,$$$usmTrySelf,+self) goto exit
+   set self=..new()
+ } catch e { 
+#;  set self=..new() 
+   do $zu(9,"",..%ClassName(1)_" self $ZE="_$ZE)
+ }
+exit
+ quit self
+]]></Implementation>
+</Method>
+
+<Method name="findself">
+<Description><![CDATA[
+find oref to stat.csp object, it is singleton i.e. only one copy of object.<br/>]]></Description>
+<ClassMethod>1</ClassMethod>
+<FormalSpec>classname=""</FormalSpec>
+<Implementation><![CDATA[
+ set self="" if classname="" { set classname=..%ClassName(1) }
+ set oref="" for {
+   set oref=$zobjnext(oref) quit:oref=""
+   if $classname(oref)=classname set self=oref quit
+ }
+ quit self
+]]></Implementation>
+</Method>
+
+<Method name="log">
+<Description>
+make log file name</Description>
+<ClassMethod>1</ClassMethod>
+<FormalSpec>logdir,statlogprefix,h</FormalSpec>
+<Implementation><![CDATA[ quit logdir_statlogprefix_"_"_ $tr($zdt($P(h,",",1),3),"-","_")_".log"
+]]></Implementation>
+</Method>
+
+<Method name="usm">
+<Description>
+shared memory user metric</Description>
+<ClassMethod>1</ClassMethod>
+<Implementation><![CDATA[
+ set tid=$zu(133,1,..%ClassName(1))
+ if tid<1 {
+   set tid=$zu(133,1,..%ClassName(1),$$$usmSize,"csp","csp stat")
+   #; stat is off
+   set x=$zu(133,6,tid,1,0)
+   set x=$zu(133,6,tid,2,0)
+   #; csp session statistic is off
+   set x=$zu(133,6,tid,7,0)
+   set x=$zu(133,6,tid,$$$usmTrySelf,1)
+   quit tid
+ }
+ else { quit tid }
+]]></Implementation>
+</Method>
+
+<Method name="getEnabled">
+<Description>
+get csp stat state enabled/disabled</Description>
+<ClassMethod>1</ClassMethod>
+<ReturnType>%String</ReturnType>
+<Implementation><![CDATA[
+  set um=..usm() if um<1 quit -1
+  quit $$$usmGet(um,1)
+]]></Implementation>
+</Method>
+
+<Method name="setEnabled">
+<Description><![CDATA[
+bit 0 csp log into file, bit 1 csp log into global<br/>
+0 no log, 1 file only, 2 global only, 3 file and global<br/>]]></Description>
+<ClassMethod>1</ClassMethod>
+<FormalSpec>switch:%Boolean</FormalSpec>
+<Implementation><![CDATA[
+ set usm=..usm() if usm<1 quit -1
+ set statold=$$$usmGet(usm,$$$usmCSPStat)
+ set stat=statold\4*4+(switch#4)
+ set x=$$$usmSet(usm,$$$usmCSPStat,stat)
+ quit statold#4
+]]></Implementation>
+</Method>
+
+<Method name="getCSPSessionStatEnabled">
+<ClassMethod>1</ClassMethod>
+<ReturnType>%Integer</ReturnType>
+<Implementation><![CDATA[
+ set usm=..usm() if usm<1 { quit -1 }
+ set stat=$$$usmGet(usm,$$$usmCSPStat)
+ set stat=$zboolean(+stat,$$$CSPSessionTrack,1)
+ quit ''stat
+]]></Implementation>
+</Method>
+
+<Method name="setCSPSessionStatEnabled">
+<ClassMethod>1</ClassMethod>
+<FormalSpec>switch:%Boolean</FormalSpec>
+<Implementation><![CDATA[
+ set usm=..usm() if usm<1 { quit -1 }
+ set stat=$$$usmGet(usm,$$$usmCSPStat)
+ set old=$zboolean(+stat,$$$CSPSessionTrack,1)
+ if (old=0) && (switch=1) { set x=$$$usmSet(usm,$$$usmCSPStat,$zboolean(stat,$$$CSPSessionTrack,7)) }
+ elseif (old=1) && (switch=0) { set x=$$$usmSet(usm,$$$usmCSPStat,$zboolean(stat,$$$CSPSessionTrack,2)) }
+ quit ''old
+]]></Implementation>
+</Method>
+
+<Method name="DisplayCSPSessions">
+<ClassMethod>1</ClassMethod>
+<Implementation><![CDATA[
+ set sessionid="" set fsdlm=$E($zu(12),$zu(12)) set dbdir="^^"_$zu(12)_"cache"_fsdlm
+ for {
+   set sessionid=$order(^|dbdir|stat.csp.session(sessionid),1,sessiondata) quit:sessionid=""
+   W "sessionid="_sessionid_",b.time="_$LG(sessiondata,1)_",b.url="_$LG(sessiondata,3)_",e.time="_$LG(sessiondata,2)_",e.url="_$LG(sessiondata,4),!
+ }
+]]></Implementation>
+</Method>
+
+<Method name="ClearCSPSessions">
+<ClassMethod>1</ClassMethod>
+<Implementation><![CDATA[
+ set sessionid="" set fsdlm=$E($zu(12),$zu(12)) set dbdir="^^"_$zu(12)_"cache"_fsdlm
+ kill ^|dbdir|stat.csp.session
+]]></Implementation>
+</Method>
+
+<Method name="JOBZSTOP">
+<Description>
+method to register for JOB^%ZSTOP? what for?</Description>
+<ClassMethod>1</ClassMethod>
+</Method>
+
+<Method name="SystemStartup">
+<Description>
+set correct setting after cache startup</Description>
+<ClassMethod>1</ClassMethod>
+<FormalSpec>switch=""</FormalSpec>
+<Implementation><![CDATA[
+ if switch="" set switch=$G(^|"%SYS"|SYS("stat","csp"),0)
+ do ##class(stat.csp).setEnabled(switch)
+ do ##class(stat.csp).setCSPSessionStatEnabled(switch)
+ set usm=..usm() if usm<1 do $zu(9,"",..%ClassName(1)_" user shared memory failure")
+]]></Implementation>
+</Method>
+
+<Method name="checkclassmap">
+<ClassMethod>1</ClassMethod>
+<Implementation><![CDATA[
+  set x="" try { set x=..%ClassName(1) } catch e {}
+  quit x
+]]></Implementation>
+</Method>
+
+<Method name="killallcsp">
+<Description>
+kill all csp server processes</Description>
+<ClassMethod>1</ClassMethod>
+<Implementation><![CDATA[
+ set maxjid=$view($zu(40,2,118),-2,4) for jid=1:1:maxjid {
+   set pid=$zu(61,17,jid) if pid'=0 {
+     if $zu(61,10,jid)=27 { set ret=$zu(4,pid) w "jid="_jid_",pid="_pid_",terminate="_ret,! }
+   }
+ }
+]]></Implementation>
+</Method>
+
+<Method name="objlist">
+<Description>
+internal used during debugging</Description>
+<ClassMethod>1</ClassMethod>
+<Implementation><![CDATA[
+ set oref="" for {
+   set oref=$zobjnext(oref) quit:oref=""
+   W oref,!
+ }
+]]></Implementation>
+</Method>
+
+<Method name="cspstatmap">
+<Description>
+create mapping SYSSTAT database might be CACHESYS or SYSSTAT (separate)
+routines stat.lib and stat.csp to SYSSTAT database
+global ^SYS("stat") SYSSTAT
+to delete</Description>
+<ClassMethod>1</ClassMethod>
+<Implementation><![CDATA[
+ if $D(^|"SYSSTAT"|SYS("stat")) { }
+ elseif $D(^|"%SYS"|SYS("stat")) {}
+]]></Implementation>
+</Method>
+
+<Method name="cspapplist">
+<Description>
+show csp application list name,namespace,event,class</Description>
+<ClassMethod>1</ClassMethod>
+<Implementation><![CDATA[
+ set nsold="" if $znspace'="%SYS" set nsold=$znspace ZN "%SYS"
+ set q=##class(%ResultSet).%New("Security.Applications:Detail")
+ set ret=q.Execute("*",2)
+ W "Name,Namespace,EventClass",!
+ while q.Next() { W q.Get("Name")_","_q.Get("NameSpace")_","_q.Get("EventClass"),! }
+ kill q
+ if nsold'="" ZN nsold
+]]></Implementation>
+</Method>
+
+<Method name="install">
+<Description>
+install csp server ptool
+adding global and routine map to every namespace to stat database
+routine mapping stat.csp.0, stat.csp.1, stat.lib to stat database
+global SYS("stat") mapping to stat database
+set EventClass to stat.csp if there is event class save it for restoring</Description>
+<ClassMethod>1</ClassMethod>
+<Implementation><![CDATA[
+ 
+ set retInstall=1
+ set CtlGlo=$$CtlGlo^stat.lib
+ set nsstat=$znspace
+ 
+ set nsold=""
+ if $znspace'="%SYS" { set nsold=$znspace ZN "%SYS" }
+ 
+ #;set nscfg=##class(Config.Namespaces).%OpenId(nsstat)
+ #;set dbrtn=nscfg.Routines
+ do ##Class(Config.Namespaces).Get(nsstat,.nsstatprops)
+ set statcodedb=$G(nsstatprops("Routines"))
+ #; statcodedb="" error
+ 
+ #; travese all cspapp configs
+ set qcspapp=##class(%ResultSet).%New("Security.Applications:Detail")
+ set ret=qcspapp.Execute("*",2)
+ while qcspapp.Next() {
+   set cspapp=qcspapp.Get("Name")
+   set EventClass(cspapp)=qcspapp.Get("EventClass")
+   set namespace=qcspapp.Get("NameSpace")
+   set cspnamespace(namespace)=""
+ }
+ 
+ #; traverse all namespaces having cspapp
+ set ns="" for {
+    set ns=$order(cspnamespace(ns)) quit:ns=""
+    set qrmap=##class(%ResultSet).%New("Config.MapRoutines:List")
+    set ret=qrmap.Execute(ns,"stat*")
+    while qrmap.Next() {
+       set rtn=qrmap.Get("Routine")
+       set dbname=qrmap.Get("Database")
+#; no need to map routines for %SYS namespace i.e. statcodedb=CACHESYS
+       set statrmap(ns,rtn)=dbname
+    }
+    kill qrmap
+    set qgmap=##class(%ResultSet).%New("Config.MapGlobals:List")
+    set ret=qgmap.Execute(ns,"SYS(""stat"")")
+    while qgmap.Next() {
+       set name=qgmap.Get("Name")
+#; no need to map SYS("stat") for %SYS namespace i.e. statcodedb=CACHESYS
+       set statgmap(ns,name)=""
+    }
+ }
+ #;B  ;set routine mapping
+ set ns="" for {
+    set ns=$order(cspnamespace(ns)) quit:ns=""
+    if ns="%SYS" continue
+#if 0
+    if '$D(statrmap(ns,"stat.csp"),dbname) {
+      set prop("Database")=statcodedb set ret=##class(Config.MapRoutines).Create(ns,"stat.csp",.prop) kill prop
+      do ..smsg(ret,"add namespace "_ns_" map stat.csp routine to database "_statcodedb,.retInstall)
+    }
+    elseif dbname'=statcodedb {
+      set ret=##class(Config.MapRoutines).Get(ns,"stat.csp",.prop)
+      set prop("Database")=statcodedb
+      set ret=##class(Config.MapRoutines).Modify(ns,"stat.csp",.prop) kill prop
+      do ..smsg(ret,"change namespace "_ns_" map stat.csp routine to database "_statcodedb,.retInstall)
+    }
+    if '$D(statrmap(ns,"stat.lib"),dbname) {
+      set prop("Database")=statcodedb set ret=##class(Config.MapRoutines).Create(ns,"stat.lib",.prop) kill prop
+      do ..smsg(ret,"add namespace "_ns_" map stat.lib routine to database "_statcodedb,.retInstall)
+    } elseif dbname'=statcodedb {
+      set ret=##class(Config.MapRoutines).Get(ns,"stat.lib",.prop)
+      set prop("Database")=statcodedb
+      set ret=##class(Config.MapRoutines).Modify(ns,"stat.lib",.prop)
+      kill prop 
+      do ..smsg(ret,"change namespace "_ns_" map stat.lib routine to database "_statcodedb,.retInstall)
+    }
+#else
+    for rtn="stat.csp.0","stat.csp.1","stat.lib" {
+      if '$D(statrmap(ns,rtn),dbname) {
+        set prop("Database")=statcodedb set ret=##class(Config.MapRoutines).Create(ns,rtn,.prop) kill prop
+        do ..smsg(ret,"add namespace "_ns_" map "_rtn_" routine to database "_statcodedb,.retInstall)
+      }
+      elseif dbname'=statcodedb {
+        set ret=##class(Config.MapRoutines).Get(ns,rtn,.prop)
+         set prop("Database")=statcodedb set ret=##class(Config.MapRoutines).Modify(ns,"stat.csp",.prop) kill prop
+         do ..smsg(ret,"change namespace "_ns_" map "_rtn_" routine to database "_statcodedb,.retInstall)
+      }
+    }
+#endif
+  }
+ #; check global mapping
+ #;B ; set global mapping
+ set ns="" for {
+   set ns=$order(cspnamespace(ns)) quit:ns=""
+   if ns="%SYS" continue
+   if '$D(statgmap(ns,"SYS(""stat"")")) {
+      set prop("Database")=statcodedb
+      set ret=##class(Config.MapGlobals).Create(ns,"SYS(""stat"")",.prop) kill prop
+      do ..smsg(ret,"for namespace "_ns_" add map ^SYS(""stat"") to database "_statcodedb)
+   }
+   else {
+      set ret=##class(Config.MapGlobals).Get(ns,"SYS(""stat"")",.prop)
+      if prop("Database")'=statcodedb {
+        set prop("Database")=statcodedb
+        set ret=##class(Config.MapGlobals).Modify(ns,"SYS(""stat"")",.prop) kill prop
+        do ..smsg(ret,"for namespace "_ns_" modify map ^SYS(""stat"") to database "_statcodedb)
+      }
+   }
+ }
+#if 0
+ kill qns
+ set qns=##class(%ResultSet).%New("Config.Namespaces:List")
+ set ret=qns.Execute()
+ while qns.Next() {
+    set namespace=qns.Get("Namespace")
+    #;set namespaces(qns.Get("Namespace"))=""
+ }
+#endif
+ #;B  ;set stat csp EventClass
+ set class=..%ClassName(1)
+ set cspapp="" for {
+    set cspapp=$order(EventClass(cspapp),1,EventClass) quit:cspapp=""
+    set cspappcfg=##class(Security.Applications).%OpenId(cspapp)
+    if cspappcfg.EventClass'=class {
+       if EventClass'="" { set @CtlGlo@("csp","EventClass",cspapp)=EventClass }
+       set cspappcfg.EventClass=class
+       set ret=cspappcfg.%Save()
+       do ..smsg(ret,"set event class to stat.csp for "_cspapp,.retInstall)
+    }
+    if '$D(@CtlGlo@("csp","EventClass",cspapp)) { set @CtlGlo@("csp","EventClass",cspapp)=EventClass }
+ }
+ 
+ if nsold'="" ZN nsold
+ set @CtlGlo@("csp","installed")=1
+]]></Implementation>
+</Method>
+
+<Method name="uninstall">
+<Description>
+uninstall csp server ptool
+restore original db mapping
+restore original csp event class</Description>
+<ClassMethod>1</ClassMethod>
+<Implementation><![CDATA[
+ set nsold=$znspace
+ set CtlGlo=$$CtlGlo^stat.lib
+ 
+ #; remove rtn mapping
+ #; remove global mapping
+ 
+ #; restore original EventClass
+ set cspapp="" for {
+   set EventClass=""
+   set cspapp=$order(@CtlGlo@("csp","EventClass",cspapp),1,EventClass) quit:cspapp=""
+   set cspappcfg=##class(Security.Applications).%OpenId(cspapp)
+   set namespace=cspappcfg.NameSpace
+   set cspnamespace(namespace)=""
+   if cspappcfg.EventClass'=EventClass {
+     set cspappcfg.EventClass=EventClass
+     set retSave=cspappcfg.%Save()
+     if +retSave { kill @CtlGlo@("csp","EventClass",cspapp) }
+     else { D $SYSTEM.OBJ.DisplayError(retSave) }
+   }
+ }
+ #; remove mapping for test.csp for all namespace having csp
+ set ns="" for {
+    set ns=$order(cspnamespace(ns)) quit:ns=""
+    #;set ret=##class(Config.MapRoutines).Delete(ns,"stat.csp")
+    #;set ret=##class(Config.MapRoutines).Delete(ns,"stat.csp*")
+    set ret=##class(Config.MapRoutines).Delete(ns,"stat.csp.0")
+    set ret=##class(Config.MapRoutines).Delete(ns,"stat.csp.1")
+    set ret=##class(Config.MapRoutines).Delete(ns,"stat.lib")
+    set ret=##class(Config.MapGlobals).Delete(ns,"SYS(""stat"")")
+ }
+ set @CtlGlo@("csp","installed")=0
+]]></Implementation>
+</Method>
+
+<Method name="smsg">
+<Description>
+status message</Description>
+<ClassMethod>1</ClassMethod>
+<FormalSpec>ret,msg,retAll</FormalSpec>
+<Implementation><![CDATA[
+ if +ret=1 { W "ok "_msg,! quit }
+ else { W "err "_msg,! set retAll=0 quit }
+]]></Implementation>
+</Method>
+</Class>
+</Export>
