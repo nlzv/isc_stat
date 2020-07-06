@@ -495,7 +495,7 @@ create instance and initialize context</Description>
 
 <Method name="hdr2">
 <ReturnType>%String</ReturnType>
-<Implementation><![CDATA[ quit "time,id,stage=e,sessionid,licenseid,sessionNew,sessionEnd,dt,tokens,gloref,"_$case(self.IsPhyRd,0:"",:"gloupd,phyrd")
+<Implementation><![CDATA[ quit "time,id,stage=e,sessionid,licenseid,sessionNew,sessionEnd,dt,tokens,gloref,"_$case(..IsPhyRd,0:"",:"gloupd,phyrd")
 ]]></Implementation>
 </Method>
 

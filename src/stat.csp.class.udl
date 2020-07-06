@@ -396,7 +396,7 @@ Method hdr1() As %String
 
 Method hdr2() As %String
 {
- quit "time,id,stage=e,sessionid,licenseid,sessionNew,sessionEnd,dt,tokens,gloref,"_$case(self.IsPhyRd,0:"",:"gloupd,phyrd")
+ quit "time,id,stage=e,sessionid,licenseid,sessionNew,sessionEnd,dt,tokens,gloref,"_$case(..IsPhyRd,0:"",:"gloupd,phyrd")
 }
 
 /// decrement ref to stat.csp oref, if there is no var to this oref object discarded
