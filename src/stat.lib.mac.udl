@@ -1,0 +1,341 @@
+ROUTINE stat.lib
+#include stat
+
+
+CtlGlo() public { quit $name(^SYS("stat")) }
+ #; get usage count of pidtab entry indexed by jid
+ #; jid="" means self process
+ #; ret "" jid is invalid
+usectr(jid="") public {
+ if jid="" set jid=$zu(61)
+ set xjid=$zu(61,30,jid)
+ if xjid=0 quit ""
+ quit xjid\65536
+} 
+ #; check in CtlGlo processes table process with given jid
+CtlGloCheckProcess(jid,fix=0) public {
+ set ret=$LB(1) 
+ set pi=$G(^SYS("stat","proc",jid))
+ if pi="" set ret=$LB(0,"noStatCtlGloProcTblEntry") quit ret
+ set $LB(jid,pid,pteuc,daemon)=pi
+ set pidnow=$zu(61,17,jid)
+ set pteucnow=$zu(61,30,jid)\65536
+ if fix {
+   if (pid'=pidnow) || (pteuc'=pteucnow) {
+     do CtlGloKillProc(jid,daemon)
+     if pid'=pidnow  { set ret=$LB(0,"SysPidChanged") }
+     elseif pteuc'=pteucnow { set ret=$LB(0,"SysPidChanged") }
+   }  
+ }   
+ quit ret  
+}
+#; check all processes for daemon
+CtlGloCheckDaemon(daemon,&pte) public {
+ kill pte
+ set jid="" for { set jid=$order(^SYS("stat","proc",jid),1,pi) quit:jid=""
+   set $LB(,pid,pteuc,pdaemon)=pi
+   if pdaemon=daemon {
+     set pidnow=$zu(61,17,jid)
+     set pteucnow=$zu(61,30,jid)\65536
+     if pidnow=pid && (pteucnow=pteuc) { set pte(jid)=pi } 
+     else { do CtlGloKillProc(jid,daemon) }
+   } 
+ } 
+} 
+#; check all daemons for right process info in CtlGlo process table
+CtlGloCheckAllProcs() public {
+ set CtlGlo=$$CtlGlo^stat
+ set jid="" for {
+    set jid=$order(@CtlGlo@("proc",jid),1,pi) quit:jid=""
+    set $LB(,pid,pteuc,daemon)=pi
+    set pidnow=$zu(61,17,jid)
+    set pteucnow=$zu(61,30,jid)\65536
+    if pid=pidnow && (pteuc=pteucnow) {}
+    else { do CtlGloKillProc(jid,daemon) }  
+ }
+ set pi=$G(@CtlGlo@("strace.dw","pi")) if pi'="" {
+   set $LB(jid,pid,pteuc)=pi if '$$CheckProc(jid,pid,pteuc) kill @CtlGlo@("strace.dw","pi")
+ }
+}
+ #; check process jid
+ #; we compare expected pid and pteuic and what is now 
+CheckProc(jid,pid,pteuc) public {
+ set ret=1 
+ set pidnow=$zu(61,17,jid) /* pid now */
+ if pid=pidnow {
+     set pteucnow=$zu(61,30,jid)\65536 /* pteuc now */
+     if pteucnow'=pteuc { set ret=1 } 
+     else { set ret=0 } 
+ } else { set ret=0 }
+ quit ret
+}   
+ #; safe way to kill process if pidtab entry is reused
+ #; procinfo=$LB(jid,pid,usectr) cache process precise identity 
+killproc(procinfo) public {
+ set $LB(jid,pid,usectr1)=pi
+ set usectr2=$$usectr(jid)
+ if usectr1=usectr2 {
+   set ret=$zu(4,pid)
+   if ret=1 quit $LB(1)
+   set text=$case(ret,-1:"no response",-2:"no os process",-3:"no cache process",-4:"refused to halt",:"")
+   quit $LB(0,"killproc",ret,text)
+ }  
+ else { quit $LB(0,"no that process") }
+}
+ #; find processes 
+FindDaemon(code,codename) public {
+}  
+ #; date D8 format YYYYMMDD
+ #; transform horolog date to D8 format
+dateHtoD8(hdate) public {
+  quit $zd(hdate,8) 
+}
+ #; log name timestamp part YYYY_MM_DD_h_m_s
+ 
+ #; log name agreement date part [_]YYYY_MM_DD[_]
+ #; left  _ from left
+ #; right _ from right
+dateD8toLNA(d8date,left=0,right=0) public {
+  quit $case(left,1:"_",:"")_$E(d8date,1,4)_"_"_$E(d8date,5,6)_"_"_$E(d8date,7,8)_$case(right,1:"_",:"")
+}
+dateLNAtoH(LNAdate) public {
+  quit $zdh($TR(LNAdate,"_",""),8)
+}
+ #; get logdir in canonical form i.e. fsdlm at the end
+logdir() public {
+ set logdir=$G(^SYS("stat","logdir"))
+ if logdir'="" {
+   set fsdlm=$E(logdir,$L(logdir))
+   if '(fsdlm="/" || (fsdlm="\")) {
+     set logdir=logdir_$$fsdlm
+   }
+ }
+ quit logdir 
+} 
+#; does not use any global
+#;(logdir,statlogprefix,h,delay,&count)
+log(logdir,statlogprefix,h,delay,&count) public {
+ do count^stat.lib(h,delay,.count)
+ set log=logdir_statlogprefix_"_"_$$lognametime^stat.lib(h)_"_"_delay_"x"_count_".log" 
+ quit log 
+} 
+lognametime(h) public { quit $tr($zdt(h,3)," :-","___") } 
+count(h,delay,&count) public { set t=86400-$P(h,",",2) set count=t\delay }
+eof(flag) public {
+ quit $zu(68,40,1)
+}
+ #; there is PROCMODTRAP macro which set vars and conditionally set trap for daemon
+procmodes(&pmode,&dmodes) public {
+#; programm mode 
+ set pmode=$zjob#2 
+#; daemon mode, in term of cache background 
+ set dmode=$zjob\2#2 
+ quit
+} 
+
+unix() public {
+  if $zversion(1)=3 quit 1
+  else  quit 0 
+}
+
+islinux() public {
+ set zversion=zversion(1)
+ if zversion=3 {
+  if $find($zcvt($SYSTEM.Version.GetPlatform(),"u"),"LINUX") quit 1
+  quit 0
+ }
+ quit 0
+} 
+GeneralPlatform() public {  set zver=$zversion(1) quit $case(zver,1:"openvms",2:"winnt",3:"unix",:"unknown") }
+platform() public {
+ set zvplatform=$SYSTEM.Version.GetPlatform()
+ set platform=""
+ set i=$F($zcvt(zvplatform,"u"),"LINUX")  if i { set platform="linux" quit platform }
+ if platform="" && ($SYSTEM.Version.GetOS()="Windows") { set platform="winnt" quit platform }
+} 
+fsdlm() public {
+ set zversion=$zversion(1) 
+ if zversion=3 { quit "/" }
+ elseif zversion=2 { quit "\" }
+ elseif zversion=1 { quit "/" } 
+} 
+#; what is new line character
+NL() public {
+ set zversion=$zversion(1)
+ if zversion=3 { quit $C(10) }
+ elseif zversion=2 { quit $C(13,10) }
+ elseif zversion=1 { quit $C(13,10) }
+}
+#; set default mask by string rwxrwxrwx
+sumask(sumask="") public {
+ set umaskold=$zu(47,0)
+ if sumask="" || ($L(sumask)'=9) do $zu(47,umaskold) quit $$umaskntos(umaskold)
+ quit $$umaskntos($zu(47,$$umaskston(sumask)))
+}
+ #; rwxrwxrwx to number 
+umaskston(sumask) public {
+ set u=0 
+ if $E(sumask,1)="-" set u=u+4
+ if $E(sumask,2)="-" set u=u+2
+ if $E(sumask,3)="-" set u=u+1
+ set g=0
+ if $E(sumask,4)="-" set g=g+4
+ if $E(sumask,5)="-" set g=g+2
+ if $E(sumask,6)="-" set g=g+1 
+ set o=0 
+ if $E(sumask,7)="-" set o=o+4
+ if $E(sumask,8)="-" set o=o+2
+ if $E(sumask,9)="-" set o=o+1
+ quit u*8+g*8+o
+} 
+  
+umaskntos(numask) public {
+ set o=numask#8
+ set numask=numask\8
+ set g=numask#8
+ set numask=numask\8 
+ set u=numask#8 
+ #; bit negation
+ set u=$zboolean(7,u,2)
+ set g=$zboolean(7,g,2)
+ set o=$zboolean(7,o,2)
+ set s=""
+ set s=s_$case($zboolean(u,4,1),0:"-",:"r")
+ set s=s_$case($zboolean(u,2,1),0:"-",:"w")
+ set s=s_$case($zboolean(u,1,1),0:"-",:"x")
+ set s=s_$case($zboolean(g,4,1),0:"-",:"r")
+ set s=s_$case($zboolean(g,2,1),0:"-",:"w")
+ set s=s_$case($zboolean(g,1,1),0:"-",:"x")
+ set s=s_$case($zboolean(o,4,1),0:"-",:"r")
+ set s=s_$case($zboolean(o,2,1),0:"-",:"w")
+ set s=s_$case($zboolean(o,1,1),0:"-",:"x")
+ quit s
+}
+ #; unpack list to name value pair options(name)=value 
+options(&options) public {
+ set n=$LL(options)
+ for i=1:1:n {
+   set option=$LG(options,1)
+   set name=$LG(option,1)
+   set value=$LG(option,2)
+   if name'="" set options(name)=valie
+ }    
+ quit
+} 
+
+#; find processes in ctlglo process table for given daemon name
+ctlgloproc(daemon,&pt,&tlen) public {
+ kill pt
+ set tlen=0
+ set jid="" for {
+   set jid=$order(^SYS("stat","proc",jid),1,pi) quit:jid=""
+   set what=$LG(pi,4)  
+   if what=daemon {
+     set pt(jid)=pi
+     set tlen=tlen+1 
+   } 
+ }    
+} 
+#; find list of jid for daemon
+#; normally should 1 item 
+#; old name procFindByDaemon
+procFindByDaemon(daemon,&jidlist) public {
+ set jidlist="" set i="" for  {
+   set i=$order(^SYS("stat","proc",i),1,pi) quit:i=""
+   set $LB(jid,,,daemon2)=pi
+   if daemon=daemon2 { set jidlist=jidlist_$LB(jid) }
+ }   
+}  
+
+#; register proc
+CtlGloSelfProcStart(daemon="")
+ set ^SYS("stat","proc",$$$SelfJid)=$LB($$$SelfJid,$job,$$$SelfPteuc,daemon)
+ if daemon'="" set ^SYS("stat","daemon",daemon,$$$SelfJid)=""
+ quit
+#; unregister proc
+CtlGloSelfProcStop(daemon="")
+ kill ^SYS("stat","proc",$$$SelfJid)
+ if daemon'="" kill ^SYS("stat","daemon",daemon,$$$SelfJid)
+ quit
+CtlGloKillProc(jid="",daemon="")
+ if jid="" quit
+ kill ^SYS("stat","proc",jid)
+ if daemon'="" kill ^SYS("stat","daemon",daemon,jid)
+ quit 
+
+
+FindObjectInArrayByClass(&ObjsArray,class) public {
+ set reto="" 
+ set i="" for {
+   set i=$order(ObjsArray(i),1,o) quit:i=""
+   if $isobject(o) && ($P(o,"@",2)=class) {
+     set reto=o quit
+   }
+ } 
+ quit reto
+}
+genstracesh() public {
+ set bindir=$SYSTEM.Util.BinaryDirectory()
+ set sh="stat.strace.sh"
+ set sh=bindir_sh
+ set instance=$P($zu(86),"*",2)
+ open sh:("NWS")
+ use sh
+ W "#!/bin/sh",!
+ W "ccontrol session "_instance_" -U %SYS start^stat.strace",!
+ close sh
+ quit
+} 
+NoJournal() public { do DISABLE^%SYS.NOJRN }
+ #; log in stat.log
+ #; time [location] Text
+ #; ' ' Text(...)
+statlog(location="",&Text) [statlog,logdir,NL] public {
+ set log=logdir_statlog
+ if ##class(%File).Exists(logdir_statlog) { open log:("AWS"):1 if '$test {} }
+ else { open log:("AWS"):1 if '$test {} } 
+ set text=$zdt($h,3)_$case(location,"":"",:" "_location)
+ if $D(Text)#2=1 { set text=text_" "_Text_NL }
+ set i="" for { set i=$order(Text(i),1,d) quit:i=""  set text=text_" "_d_NL }
+ use log W text close log use 0
+}
+ #; in handler add trigger
+addTrigger(stattype="",statname="",op="",limit="",triggercode="") [doTriggers,triggers] public {
+ try { 
+   for i=1:1 { if '$D(triggers(stattype,statname,op,limit,i)) quit }
+   set triggers(stattype,statname,op,limit,i)=triggercode
+   set doTriggers=1
+ } catch e { if $classname(e)="%Exception.SystemException" { do $zu(9,"",$ZNAME_" $ZE="_(e.AsSystemError())) } }
+}
+ #; in handler delete trigger
+ #; when trigger is deleted we need to send on=0 to targert
+delTrigger(stattype="",statname="",op="",limit="",triggercode="") [doTriggers,triggers,triggervalue] public {
+ try {
+   if stattype="" { kill triggers }
+   elseif statname="" { kill triggers(stattype) }
+   elseif op="" { kill triggers(stattype,statname) }
+   elseif limit="" { kill triggers(stattype,statname,op) }
+   elseif triggercode="" { kill triggers(stattype,statname,op,limit) }
+   else {
+     set i="" for {
+       set i=$order(triggers(stattype,statname,op,limit,i),1,t) quit:i=""
+       if t=triggercode {
+         set triggervalue=0
+         try {
+           do $zu(9,"",$ZNAME_" delTrigger triggercode "_triggercode)
+           X triggercode
+           do $zu(9,"",$ZNAME_" delTrigger success X triggercode="_triggercode)
+         } catch e { do $zu(9,"",$ZNAME_" $ZE="_$ZE) }
+         kill triggers(stattype,statname,op,limit,i)
+       }
+     }
+   }
+   if $order(triggers(""))="" set doTriggers=0
+ } catch e { if $classname(e)="%Exception.SystemException" { do $zu(9,"",$ZNAME_" $ZE="_(e.AsSystemError())) } }
+ quit
+} 
+ #; send signal to delete triggers
+DeleteTriggers(daemon,type="",name="",op="",limit="",triggercode="") public { 
+ try { set ret=$SYSTEM.Event.Signal($$DaemonSignal^@daemon,$LB("delTrigger",type,name,op,limit,triggercode)) }
+ catch e {}
+ } 
