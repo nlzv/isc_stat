@@ -362,7 +362,7 @@ ClassMethod new()
    set platform=$$platform^stat.lib
    set self.docpu=0
    if platform="linux" {
-     set cpudev="/proc/"_$J_"/schedstat"
+     set cpudev="/proc/"_$P($J,":",1)_"/schedstat"
      open cpudev:("RS"):0.01 if $test { set self.docpu=1 set self.cpudev=cpudev } else { set self.docpu=0 }
    }
    #;do $zu(9,"",..%ClassName(1)_" new docpu="_self.docpu_",platform="_platform_",cpudev="_cpudev)
