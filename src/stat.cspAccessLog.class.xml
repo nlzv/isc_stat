@@ -4,7 +4,7 @@
 <Description>
 class to view csp server requests using SQL</Description>
 <Super>%Persistent</Super>
-<TimeCreated>65553,58587.766348</TimeCreated>
+<TimeCreated>65595,51864.647046</TimeCreated>
 
 <Property name="ReqId">
 <Description>
@@ -21,7 +21,7 @@ cspgw request id originally in hex, storage slot 7</Description>
 <Property name="duration">
 <Description>
 time spent to process http request, storage slot 8</Description>
-<Type>%String</Type>
+<Type>%Double</Type>
 </Property>
 
 <Property name="tsStart">
@@ -123,37 +123,78 @@ license id of the session, storage slot 6</Description>
 <Property name="tokens">
 <Description>
 number of COS ?tokens/lines? executed, storage slot 20</Description>
-<Type>%String</Type>
+<Type>%BigInt</Type>
 </Property>
 
 <Property name="GloRef">
 <Description>
 global accessed during request execution, storage slot 21</Description>
-<Type>%String</Type>
+<Type>%BigInt</Type>
 </Property>
 
 <Property name="GloUpd">
 <Description>
 globals updates during request execution, storage slot 22</Description>
-<Type>%String</Type>
+<Type>%BigInt</Type>
 </Property>
 
 <Property name="PhyRd">
 <Description>
 physical read during request execution, storage slot 23</Description>
+<Type>%BigInt</Type>
+</Property>
+
+<UDLText name="T">
+<Content><![CDATA[
+// Property broker As stat.cspAccessLogBroker;
+
+]]></Content>
+</UDLText>
+
+<Property name="BrkClass">
 <Type>%String</Type>
+</Property>
+
+<Property name="BrkMethod">
+<Type>%String</Type>
+</Property>
+
+<Property name="BrkNArgs">
+<Type>%Integer</Type>
+</Property>
+
+<Property name="BrkArgs">
+<Description>
+Use vBrkArgs in sql since BrksArgs is Cache List and it is binary</Description>
+<Type>%String</Type>
+</Property>
+
+<Property name="vBrkArgs">
+<Description><![CDATA[
+represent argument as quoted string in comma list<br/>
+don't expect it is correct since it is correct as correct zw<br/>
+anyway it is mainly to view string data<br/>
+binary might be displayed incorrectly<br/>]]></Description>
+<Type>%String</Type>
+<Calculated>1</Calculated>
+<SqlComputeCode> 
+    set v={BrkArgs} set n={BrkNArgs} 
+    set x="" for i=1:1:n { set x=x_$case(x="",1:"",:",")_$$Format^%qcr($LG(v,i),1) }
+    set {*}=x
+  </SqlComputeCode>
+<SqlComputed>1</SqlComputed>
 </Property>
 
 <Property name="cpurun">
 <Description>
 time to run</Description>
-<Type>%BigInt</Type>
+<Type>%Double</Type>
 </Property>
 
 <Property name="cpurunqueue">
 <Description>
 time to wait in runqueue</Description>
-<Type>%BigInt</Type>
+<Type>%Double</Type>
 </Property>
 
 <Property name="cputimeslices">
@@ -200,12 +241,12 @@ in order to have SQL processing<br/>]]></Description>
      set cliport=$P(tx,",",14)
      set gwhost=$P(tx,",",15)
      set gwport=$P(tx,",",16)
-     set ^|"^^"_$zu(12)_"cache"|stat.csp(reqid)=$LB(,,,,sessionid/*5inSessionId*/,,gwReqId/*7*/,,ts/*9*/,,url/*11*/,method/*12*/,ns,class,cspapp,cliip,cliport,gwhost,gwport)
+     set ^|"SYSSTAT"|stat.csp(reqid)=$LB(,,,,sessionid/*5inSessionId*/,,gwReqId/*7*/,,ts/*9*/,,url/*11*/,method/*12*/,ns,class,cspapp,cliip,cliport,gwhost,gwport)
    }
    elseif state="e" {
      set ts=$P(tx,",",1)
      set reqid=$P(tx,",",2)
-     set data=$G(^|"^^"_$zu(12)_"cache"|stat.csp(reqid))
+     set data=$G(^|"SYSSTAT"|stat.csp(reqid))
      set sessionid=$P(tx,",",4)/*sessionid*/
      set $LI(data,2)=sessionid
      set $LI(data,3)=$P(tx,",",6)/*session start*/
@@ -217,7 +258,21 @@ in order to have SQL processing<br/>]]></Description>
      set $LI(data,21)=$P(tx,",",10)/*GloRef*/
      set $LI(data,22)=$P(tx,",",11)/*GloUpd*/
      set $LI(data,23)=$P(tx,",",12)/*PhyRd*/
-     set ^|"^^"_$zu(12)_"cache"|stat.csp(reqid)=data
+     set $LI(data,24)=$P(tx,",",13)/*cpurun*/
+     set $LI(data,25)=$P(tx,",",14)/*cpurunqueue*/
+     set $LI(data,26)=$P(tx,",",15)/*cputimeslices*/
+     set $LI(data,27)=$P(tx,",",16)/*broker class*/
+     set $LI(data,28)=$P(tx,",",17)/*broker method*/
+     set $LI(data,29)=$P(tx,",",18)/*broker argument number*/
+     if reqid'="" && $D(BrokerArgs(reqid)) set $LI(data,30)=BrokerArgs(reqid) kill BrokerArgs(reqid)
+     set ^|"SYSSTAT"|stat.csp(reqid)=data
+   }
+   elseif state="ba" {
+     set o=$F(tx,",ba,")
+     set BrokerArgs=$SYSTEM.Encryption.Base64Decode($E(tx,o,*))
+     set tx1=$E(tx,1,o-2)
+     set reqid=$P(tx1,",",2)
+     if reqid'="" set BrokerArgs(reqid)=$G(BrokerArgs)
    }
  }
  use 0 close file
@@ -226,6 +281,8 @@ in order to have SQL processing<br/>]]></Description>
 </Method>
 
 <Method name="ExportToCSPServerLog">
+<Description>
+does't support export broker details(class,method,args) yet</Description>
 <ClassMethod>1</ClassMethod>
 <ReturnType>%String</ReturnType>
 <Implementation><![CDATA[
@@ -253,7 +310,7 @@ in order to have SQL processing<br/>]]></Description>
      set cliport=$P(tx,",",14)
      set gwhost=$P(tx,",",15)
      set gwport=$P(tx,",",16)
-     set ^|"^^"_$zu(12)_"cache"|stat.csp(reqid)=$LB(,,,,sessionid/*5refusedsessionid*/,,gwReqId/*7*/,,ts/*9*/,,url/*11*/,method/*12*/,ns,class,cspapp,cliip,cliport,gwhost,gwport)
+     set ^|"SYSSTAT"|stat.csp(reqid)=$LB(,,,,sessionid/*5refusedsessionid*/,,gwReqId/*7*/,,ts/*9*/,,url/*11*/,method/*12*/,ns,class,cspapp,cliip,cliport,gwhost,gwport)
    }
    elseif state="e" {
      set ts=$P(tx,",",1)
@@ -275,7 +332,7 @@ in order to have SQL processing<br/>]]></Description>
      set $LI(data,24)=$P(tx,",",13)/*cpurun*/
      set $LI(data,25)=$P(tx,",",14)/*cpurunqueue*/
      set $LI(data,26)=$P(tx,",",15)/*cputimeslices*/
-     set ^|"^^"_$zu(12)_"cache"|stat.csp(reqid)=data
+     set ^|"SYSSTAT"|stat.csp(reqid)=data
    }
  }
  use 0 close file
@@ -285,11 +342,11 @@ in order to have SQL processing<br/>]]></Description>
 
 <Storage name="Default">
 <Type>%Library.CacheStorage</Type>
-<DataLocation>^|"^^"_$zu(12)_"cache"|stat.csp</DataLocation>
+<DataLocation>^|"SYSSTAT"|stat.csp</DataLocation>
 <DefaultData>StatCSPAccessLog</DefaultData>
-<IdLocation>^|"^^"_$zu(12)_"cache"|stat.csp.id</IdLocation>
-<IndexLocation>^stat.csp.I</IndexLocation>
-<StreamLocation>^stat.csp.S</StreamLocation>
+<IdLocation>^|"SYSSTAT"|stat.csp.id</IdLocation>
+<IndexLocation>^|"SYSSTAT"|stat.csp.i</IndexLocation>
+<StreamLocation>^|"SYSSTAT"|stat.csp.s</StreamLocation>
 <Data name="StatCSPAccessLog">
 <Value name="1">
 <Value>%%CLASSNAME</Value>
@@ -368,6 +425,18 @@ in order to have SQL processing<br/>]]></Description>
 </Value>
 <Value name="26">
 <Value>cputimeslices</Value>
+</Value>
+<Value name="27">
+<Value>BrkClass</Value>
+</Value>
+<Value name="28">
+<Value>BrkMethod</Value>
+</Value>
+<Value name="29">
+<Value>BrkNArgs</Value>
+</Value>
+<Value name="30">
+<Value>BrkArgs</Value>
 </Value>
 </Data>
 </Storage>

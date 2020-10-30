@@ -7,6 +7,10 @@
  #else
  #define DEBUGCODE(%1)
  #endif
+ #; this option would be cool but ... it kill routine mapping including systems
+ #;#define nsCodeMapModel "GlobalROBJ"
+ #define nsCodeMapModel "Routine"
+ 
 #; cos job index
  #define JID $zu(61)
  #define usmGet(%1,%2) $zu(133,6,%1,%2)
@@ -21,6 +25,8 @@
  #define CSPLogFile 1
  #define CSPLogGlobal 2
  #define CSPSessionTrack 4
+ #define IsCSPLogFile(%1) $zboolean(%1,$$$CSPLogFile,1)
+ #define IsCSPLogGlobal(%1) $zboolean(%1,$$$CSPLogGlobal,1)
 #; list index for stat.csp.session
  #define CspSessionStartTime 1
  #define CspSessionEndTime 2

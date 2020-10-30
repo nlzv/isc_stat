@@ -8,7 +8,7 @@ for config is used ^|"%SYS"|SYS("stat","csp")?!
 to do: avoid stat.lib usage]]></Description>
 <IncludeCode>statcsp</IncludeCode>
 <Super>%CSP.SessionEvents</Super>
-<TimeCreated>64902,84679.029233</TimeCreated>
+<TimeCreated>65595,48784.331776</TimeCreated>
 
 <Property name="log">
 <Type>%String</Type>
@@ -84,6 +84,12 @@ do process cpu stat</Description>
 <Type>%String</Type>
 </Property>
 
+<Property name="cpudevoto">
+<Description>
+timeout to open cpudev</Description>
+<Type>%Numeric</Type>
+</Property>
+
 <Property name="dcpu">
 <Type>%String</Type>
 </Property>
@@ -105,6 +111,24 @@ original EventClass for csp application</Description>
 saved original EventClass for csp applications</Description>
 <Type>%String</Type>
 <MultiDimensional>1</MultiDimensional>
+</Property>
+
+<Property name="BrokerClass">
+<Type>%String</Type>
+</Property>
+
+<Property name="BrokerMethod">
+<Type>%String</Type>
+</Property>
+
+<Property name="BrokerNArgs">
+<Type>%Integer</Type>
+</Property>
+
+<Property name="BrokerArgs">
+<Description><![CDATA[
+every broker args $$Format^%qcr(value,flag), cutof if length too bigs?<br/>]]></Description>
+<Type>%String</Type>
 </Property>
 
 <Property name="CSPCHD">
@@ -185,6 +209,7 @@ causious %session is underfined<br/>]]></Description>
        } else { set EventClass="" }
        set stat.cspapp=cspapp
        set stat.EventClass=EventClass
+       set stat.BrokerClass=""
        $$$DEBUGCODE(do $zu(9,"",..%ClassName(1)_" OnStartRequest reqid="_id_" cspapp="_cspapp_" EventClass="_EventClass))
        set jid=$$$JID
        if $isobject($G(%session)) { set sessionid=%session.SessionId set application=%session.Application }
@@ -195,12 +220,16 @@ causious %session is underfined<br/>]]></Description>
          set io=$io set zh=$zh lock +^%stat.csp.logfile:logtimeout if $test {
            open log:("WSA"):logtimeout if $test {
              set zh2=$zh use log
-             W tsStart_","_id_",s,"_$G(sessionid)_","_%request.RequestId_","_jid_","_$J_","_%request.URL_","_$znspace_","_%request.Class_","_cspapp_","_
-               %request.Method_","_%request.GetCgiEnv("REMOTE_ADDR")_","_%request.GetCgiEnv("REMOTE_PORT")_","_
-               %request.GetCgiEnv("SERVER_ADDR")_","_%request.GetCgiEnv("SERVER_PORT")_"," _application_$C(10)
-             close log lock -^%stat.csp.logfile use io
-             set dt=$zh-zh2
+             try {
+               W tsStart_","_id_",s,"_$G(sessionid)_","_%request.RequestId_","_jid_","_$J_","_%request.URL_","_$znspace_","_%request.Class_","_cspapp_","_
+                 %request.Method_","_%request.GetCgiEnv("REMOTE_ADDR")_","_%request.GetCgiEnv("REMOTE_PORT")_","_
+                 %request.GetCgiEnv("SERVER_ADDR")_","_%request.GetCgiEnv("SERVER_PORT")_"," _application_$C(10)
+               #;if %request.Class="%CSP.StreamServer" { W ","_id_",ss"_","_$G(%request.Data("FILE",1))_$C(10) }
+               close log lock -^%stat.csp.logfile use io
+               set dt=$zh-zh2
              $$$DEBUGCODE(do $zu(9,"",..%ClassName(1)_" OnStartRequest write in CSP log file dt="_dt))
+             }
+             catch { use io close log do $zu(9,"",..%ClassName(1)_" OnStartRequest %request="_$G(%request)_"$ZE="_$ZE) }
            }
          }
          else {
@@ -211,8 +240,19 @@ causious %session is underfined<br/>]]></Description>
        }
        set stat.zh=$zh set stat.Tokens=$zu(61,8,jid) set stat.GloRef=$zu(61,9,jid)
        if stat.IsPhyRd { set stat.GloUpd=$zu(61,35,jid) set stat.PhyRd=$zu(61,34,jid) }
-       if stat.docpu=1 { set io=$io set t="" try { use stat.cpudev:0 read t } catch {} set stat.dcpu=t use io }
-     } else { do $zu(9,"",..%ClassName(1)_" csp stat singleton not found") }
+       if stat.docpu=1 {
+         set io=$io set t="" try {
+           open stat.cpudev:stat.cpudevoto if $test {
+              use stat.cpudev read t use io set stat.dcpu=t
+              #;use stat.cpudev:0 read t use io set stat.dcpu=t
+           }
+         }
+         catch {
+           use io set stat.dcpu=""
+           do $zu(9,"",$ZNAME_" OnStartRequest dev="_(stat.cpudev)_",$ZE="_$ZE)
+         }
+       }
+     } else { do $zu(9,"",..%ClassName(1)_" csp stat process singleton not found") }
    }
  } catch e { do $zu(9,"",..%ClassName(1)_" OnStartRequest $ZE="_$ZE) }
  try { if stat.EventClass'="" { set retec=$classmethod(stat.EventClass,"OnStartRequest") } } catch e {}
@@ -238,10 +278,19 @@ error
       set stat=..self()
       if stat'="" && $isobject(stat) && ($classname(stat)=..%ClassName(1) ) {
         if stat.docpu {
-          set io=$io set t2="" try { use stat.cpudev:0 read t2 } catch {}
-          if t2'="" {
+          set io=$io set t2="" try {
+            #;open stat.cpudev:0.1
+            use stat.cpudev:0 read t2 use io close stat.cpudev
+            #;use stat.cpudev read t2 use io
             set t1=stat.dcpu
-            set stat.dcpu=$LB($$$NanoToMicroSecPrecision($P(t2," ",1)-$P(t1," ",1)),$$$NanoToMicroSecPrecision($P(t2," ",2)-$P(t1," ",2)),$P(t2," ",3)-$P(t1," ",3))
+            if t2'=""&&(t1'="") {
+              set stat.dcpu=$LB($$$NanoToMicroSecPrecision($P(t2," ",1)-$P(t1," ",1)),$$$NanoToMicroSecPrecision($P(t2," ",2)-$P(t1," ",2)),$P(t2," ",3)-$P(t1," ",3))
+            }
+            else { set stat.dcpu=$LB("","","") }
+          }
+          catch {
+            use io
+            do $zu(9,"",$ZNAME_" OnEndRequest dev="_stat.cpudev_",$ZE="_$ZE)
           }
         }
         set h=$h if $P(stat.inith,",",1)'=$P(h,",",1) do stat.switchlog(h)
@@ -260,23 +309,32 @@ error
         set gloref=$zu(61,9,$zu(61))-stat.GloRef
         if stat.IsPhyRd { set gloupd=$zu(61,35,$zu(61))-stat.GloUpd set PhyRd=$zu(61,34,$zu(61))-stat.PhyRd }
         else { set gloupd="",PhyRd=""}
+        set dcpu=stat.dcpu
         if $zboolean(staton,$$$CSPLogFile,1) {
           set io=$io lock +^%stat.csp.logfile:logtimeout if $test {
             open log:("WSA"):logtimeout if $test {
               use log
-              W stat.tsStart_","_stat.id_",e,"_$G(sessionid)_","_$G(licenseid)_","_$G(sessionNew)_","_$G(sessionEnd)_","_
-               duration_","_tokens_","_gloref_","_gloupd_","_PhyRd_","_$LTS(stat.dcpu)_$C(10)
-               close log lock -^%stat.csp.logfile use io
-            }
+              try {
+                if stat.BrokerClass'="" W ","_stat.id_",ba,"_$SYSTEM.Encryption.Base64Encode(stat.BrokerArgs,1)_$C(10)
+                W tsEnd_","_stat.id_",e,"_$G(sessionid)_","_$G(licenseid)_","_$G(sessionNew)_","_$G(sessionEnd)_","_
+                 duration_","_tokens_","_gloref_","_gloupd_","_PhyRd_","_$LG(dcpu,1)_","_$LG(dcpu,2)_","_$LG(dcpu,3)_","_stat.BrokerClass_","_stat.BrokerMethod_","_stat.BrokerNArgs_$C(10)
+                 use io close log lock -^%stat.csp.logfile
+              }
+              catch e {
+                use io close log lock -^%stat.csp.logfile
+                do $zu(9,"",..%ClassName(1)_" OnEndRequest $ZE="_$ZE)
+              }
+            } /* else { try { use io close log } catch {} } */
           }
+          else { do $zu(9,"",..%ClassName(1)_" OnEndRequest unable get lock during "_logtimeout_" for writing in csp stat log file") }
         }
         if $zboolean(staton,$$$CSPLogGlobal,1) {
-           set dcpu=stat.dcpu
+           $$$DEBUGCODE(do $zu(9,"",..%ClassName(1)_" OnEndRequest class="_stat.BrokerClass_" method="_stat.BrokerMethod))
            set ^|"^^"_stat.dbdir|stat.csp(stat.id)=$LB(,$G(sessionid),$G(sessionNew),$G(sessionEnd),$E(stat.CSPCHD,13,22),licenseid,stat.gwReqId,duration,
              stat.tsStart/*9*/,tsEnd/*10*/,%request.URL/*11*/,%request.Method/*12*/,$znspace/*13*/,%request.Class/*14*/,stat.cspapp/*15*/,
              %request.GetCgiEnv("REMOTE_ADDR")/*16*/,%request.GetCgiEnv("REMOTE_PORT")/*17*/,
              %request.GetCgiEnv("SERVER_ADDR")/*18*/,%request.GetCgiEnv("SERVER_PORT")/*19*/,
-             tokens/*20*/,gloref/*21*/,gloupd/*22*/,PhyRd/*23*/,$LG(dcpu,1)/*24*/,$LG(dcpu,2)/*25*/,$LG(dcpu,3)/*26*/)
+             tokens/*20*/,gloref/*21*/,gloupd/*22*/,PhyRd/*23*/,$LG(dcpu,1)/*24*/,$LG(dcpu,2)/*25*/,$LG(dcpu,3)/*26*/,stat.BrokerClass/*27*/,stat.BrokerMethod/*28*/,stat.BrokerNArgs/*29*/,stat.BrokerArgs/*30*/)
         }
       }
       else { do $zu(9,"",..%ClassName(1)_"OnEndRequest csp stat singleton not found self="_self) }
@@ -413,6 +471,38 @@ error
 ]]></Implementation>
 </Method>
 
+<Method name="OnBrokerCall">
+<ClassMethod>1</ClassMethod>
+<FormalSpec>BrokerClass,BrokerMethod,args</FormalSpec>
+<Implementation><![CDATA[
+ set $ztrap="error"
+ try { set usm=-10 set usm=..usm() } catch {}
+ #;do $zu(9,"",..%ClassName(1)_" OnBrokerCall 2 class="_BrokerClass_" method="_BrokerMethod_",usm="_usm)
+ if usm < 1 quit
+ set staton=$$$usmGet(usm,$$$usmCSPStat)
+ #;do $zu(9,"",..%ClassName(1)_" OnBrokerCall 3 class="_BrokerClass_" method="_BrokerMethod_",staton="_$G(staton))
+ if staton>0 {
+   set self=..self()
+   #;do $zu(9,"",..%ClassName(1)_" OnBrokerCall 4 self="_self)
+   if self'="" && $isobject(self) && ($classname(self)=..%ClassName(1)) {
+     #;do $zu(9,"",..%ClassName(1)_" OnBrokerCall 5 self="_self)
+     set self.BrokerClass=BrokerClass
+     set self.BrokerMethod=BrokerMethod
+     if $G(args)>0 {
+       set self.BrokerNArgs=args
+       #;set v="" for i=1:1:args { set v=v_$case(v="",1:"",:",")_"'"_args(i)_"'" }
+       set v="" for i=1:1:args { set v=v_$LB(args(i)) }
+       set self.BrokerArgs=v
+     }
+   }
+ }
+ quit
+error
+ set $ztrap=""
+ do $zu(9,"",%ClassName(1)_" OnBrokerCall_$ZE="_$ZE)
+]]></Implementation>
+</Method>
+
 <Method name="new">
 <Description>
 create instance and initialize context</Description>
@@ -431,7 +521,7 @@ create instance and initialize context</Description>
    set log=..log(self.logdir,"stat_csp",h)
    $$$DEBUGCODE(do $zu(9,"","stat.csp new log="_log))
    set self.inith=h
-   set logtimeout=0.01
+   set logtimeout=$G(@CtlGlo@("csp","logtimeout"),0.1)
    try { if $$unix^stat.lib do sumask^stat.lib("rw-rw-r--") } catch e { do $zu(9,"",$ZNAME_" $ZE="_$ZE)}
    if '##class(%File).Exists(log) {
      lock +^stat.csp.logfile
@@ -457,8 +547,17 @@ create instance and initialize context</Description>
    set platform=$$platform^stat.lib
    set self.docpu=0
    if platform="linux" {
+     set cpudevoto=$G(^SYS("stat","csp","procputimeout"),0.1)
+     set self.cpudevoto=cpudevoto
      set cpudev="/proc/"_$P($J,":",1)_"/schedstat"
-     open cpudev:("RS"):0.01 if $test { set self.docpu=1 set self.cpudev=cpudev } else { set self.docpu=0 }
+     open cpudev:("RS"):cpudevoto
+     if $test {
+       set self.docpu=1 set self.cpudev=cpudev close cpudev
+     }
+     else {
+       set self.docpu=0
+       #;do $zu(9,$ZNAME_" new open proc cpu fail")
+     }
    }
    #;do $zu(9,"",..%ClassName(1)_" new docpu="_self.docpu_",platform="_platform_",cpudev="_cpudev)
    set self.platform=platform
@@ -614,6 +713,64 @@ bit 0 csp log into file, bit 1 csp log into global<br/>
 ]]></Implementation>
 </Method>
 
+<Method name="getStateText">
+<ClassMethod>1</ClassMethod>
+<Implementation><![CDATA[
+ set t="csp server stat"
+ set installed=$G(^SYS("stat","csp","installed"),0)
+ if installed=1 {
+   try { set usm=-10 set usm=..usm() } catch {}
+     set t=t_" installed"
+   if usm<0 { set t=t_" getting shared mem failure"}
+   else {
+     set staton=$$$usmGet(usm,$$$usmCSPStat)
+     if $$$IsCSPLogFile(staton) || $$$IsCSPLogGlobal(staton) {
+       set t=t_", active: logging in "
+       if $$$IsCSPLogFile(staton) set t2="file"
+       if $$$IsCSPLogGlobal(staton) set t2=$G(t2)_$case($G(t2)="",1:"",:", ")_"global"
+       set t=t_t2
+     }
+     else { set t=t_", not active" }
+   }
+ }
+ elseif installed=0 { set t=t_" not installed" }
+ quit t
+]]></Implementation>
+</Method>
+
+<Method name="startup">
+<ClassMethod>1</ClassMethod>
+<Implementation><![CDATA[
+ set cspinstalled=^SYS("stat","csp","installed")
+ if cspinstalled=0 quit 0
+ try { set usm=-10 set usm=..usm() } catch {}
+ if usm<1 { quit 0 }
+ set ctlglo=$$CtlGlo^stat.lib
+ set reqid=$G(@ctlglo@("csp","reqid"),0)
+#; additional check of reqid based on log and db
+ set x=$$$usmSet(usm,$$$usmReqId,reqid)
+ set csplogfile=$G(@ctlglo@("csp","log","file"),0)
+ set csplogdb=$G(@ctlglo@("csp","log","db"),0)
+ set cspstat=csplogdb*2+csplogfile
+ #;do $zu(9,"",..%ClassName(1)_" startup cspstat="_cspstat)
+ do ##class(stat.csp).setEnabled(cspstat)
+ quit 1
+]]></Implementation>
+</Method>
+
+<Method name="shutdown">
+<ClassMethod>1</ClassMethod>
+<Implementation><![CDATA[
+ do ##class(stat.csp).setEnabled(0)
+ try { set usm=-10 set usm=..usm() } catch {}
+ if usm<1 { quit 0 }
+ set reqid=$$$usmGet(usm,$$$usmReqId)
+ set ctlglo=$$CtlGlo^stat.lib
+ set @ctlglo@("csp","reqid")=reqid
+ quit 1
+]]></Implementation>
+</Method>
+
 <Method name="getCSPSessionStatEnabled">
 <ClassMethod>1</ClassMethod>
 <ReturnType>%Integer</ReturnType>
@@ -671,7 +828,7 @@ set correct setting after cache startup</Description>
 <Implementation><![CDATA[
  if switch="" set switch=$G(^|"%SYS"|SYS("stat","csp"),0)
  do ##class(stat.csp).setEnabled(switch)
- do ##class(stat.csp).setCSPSessionStatEnabled(switch)
+ #;do ##class(stat.csp).setCSPSessionStatEnabled(switch)
  set usm=..usm() if usm<1 do $zu(9,"",..%ClassName(1)_" user shared memory failure")
 ]]></Implementation>
 </Method>
@@ -685,8 +842,9 @@ set correct setting after cache startup</Description>
 </Method>
 
 <Method name="killallcsp">
-<Description>
-kill all csp server processes</Description>
+<Description><![CDATA[
+kill all csp server processes<br/>
+purpose debugging, clean csp processes running old code<br/>]]></Description>
 <ClassMethod>1</ClassMethod>
 <Implementation><![CDATA[
  set maxjid=$view($zu(40,2,118),-2,4) for jid=1:1:maxjid {
@@ -699,7 +857,7 @@ kill all csp server processes</Description>
 
 <Method name="objlist">
 <Description>
-internal used during debugging</Description>
+internal used during debugging, list of oref's in current process</Description>
 <ClassMethod>1</ClassMethod>
 <Implementation><![CDATA[
  set oref="" for {
@@ -789,6 +947,12 @@ set EventClass to stat.csp if there is event class save it for restoring</Descri
 #; no need to map SYS("stat") for %SYS namespace i.e. statcodedb=CACHESYS
        set statgmap(ns,name)=""
     }
+    set ret=qgmap.Execute(ns,"rOBJ(""stat.csp.0"")")
+    while qgmap.Next() { set name=qgmap.Get("Name") set db=qgmap.Get("Database") set statgmap(ns,name)=db }
+    set ret=qgmap.Execute(ns,"rOBJ(""stat.csp.1"")")
+    while qgmap.Next() { set name=qgmap.Get("Name") set db=qgmap.Get("Database") set statgmap(ns,name)=db }
+    set ret=qgmap.Execute(ns,"rOBJ(""stat.lib"")")
+    while qgmap.Next() { set name=qgmap.Get("Name") set db=qgmap.Get("Database") set statgmap(ns,name)=db }
  }
  #;B  ;set routine mapping
  set ns="" for {
@@ -815,7 +979,8 @@ set EventClass to stat.csp if there is event class save it for restoring</Descri
       kill prop 
       do ..smsg(ret,"change namespace "_ns_" map stat.lib routine to database "_statcodedb,.retInstall)
     }
-#else
+#endif
+#if $$$nsCodeMapModel="Routine"
     for rtn="stat.csp.0","stat.csp.1","stat.lib" {
       if '$D(statrmap(ns,rtn),dbname) {
         set prop("Database")=statcodedb set ret=##class(Config.MapRoutines).Create(ns,rtn,.prop) kill prop
@@ -847,6 +1012,27 @@ set EventClass to stat.csp if there is event class save it for restoring</Descri
         do ..smsg(ret,"for namespace "_ns_" modify map ^SYS(""stat"") to database "_statcodedb)
       }
    }
+#if $$$nsCodeMapModel="GlobalROBJ"
+   for rtn="stat.csp.0","stat.csp.1","stat.lib" {
+     set prop("Database")=statcodedb
+     set prop("Collation")=133
+     if $D(statgmap(rtn),db)=0 {
+       set ret=##class(Config.MapGlobals).Create(ns,"rOBJ("""_rtn_""")",.prop) kill prop
+       do ..smsg(ret,"for namespace "_ns_" add map ^rOBJ("""_rtn_""") to database "_statcodedb)
+     }
+     else {
+        if db'=statcodedb {
+          set ret=##class(Config.MapGlobals).Modify(ns,"rOBJ("""_rtn_""")",.prop) kill prop
+          do ..smsg(ret,"for namespace "_ns_" modify map ^rOBJ("""_rtn_""") to database "_statcodedb)
+        }
+     }
+   }
+#endif
+#if 0
+   set ret=##class(Config.MapGlobals).Modify(ns,"rOBJ(""stat.csp.0"":""stat.csp.1"")")
+   if ns="USER" && (+ret=0) B
+#endif
+
  }
 #if 0
  kill qns
@@ -861,7 +1047,14 @@ set EventClass to stat.csp if there is event class save it for restoring</Descri
  set class=..%ClassName(1)
  set cspapp="" for {
     set cspapp=$order(EventClass(cspapp),1,EventClass) quit:cspapp=""
-    set cspappcfg=##class(Security.Applications).%OpenId(cspapp)
+    set cspappcfg=##class(Security.Applications).%OpenId(cspapp,,.ret)
+    if +ret=0 {
+      do $SYSTEM.Status.DecomposeStatus(ret,.errlist,,"en")
+      W "csp application "_cspapp_" open error",!
+      W " "_$G(errlist(1)),!
+      continue
+    }
+#; here might be problem with opening cspapp
     if cspappcfg.EventClass'=class {
        if EventClass'="" { set @CtlGlo@("csp","EventClass",cspapp)=EventClass }
        set cspappcfg.EventClass=class
@@ -893,12 +1086,20 @@ restore original csp event class</Description>
  set cspapp="" for {
    set EventClass=""
    set cspapp=$order(@CtlGlo@("csp","EventClass",cspapp),1,EventClass) quit:cspapp=""
-   set cspappcfg=##class(Security.Applications).%OpenId(cspapp)
+#; since then csp application might be deleted
+   set cspappcfg=##class(Security.Applications).%OpenId(cspapp,,.ret)
+   if +ret=0 {
+     do $SYSTEM.Status.DecomposeStatus(ret,.errlis,,"en")
+     W "csp application "_cspapp_" config open failure",!
+     W " "_$G(errlist(1)),!
+     continue
+   }
    set namespace=cspappcfg.NameSpace
    set cspnamespace(namespace)=""
    if cspappcfg.EventClass'=EventClass {
      set cspappcfg.EventClass=EventClass
      set retSave=cspappcfg.%Save()
+     do ..smsg(retSave,"restore original Event Class '"_EventClass_"' for csp application "_cspapp)
      if +retSave { kill @CtlGlo@("csp","EventClass",cspapp) }
      else { D $SYSTEM.OBJ.DisplayError(retSave) }
    }
@@ -906,14 +1107,172 @@ restore original csp event class</Description>
  #; remove mapping for test.csp for all namespace having csp
  set ns="" for {
     set ns=$order(cspnamespace(ns)) quit:ns=""
+    if ns="%SYS" continue
+#if 0
     #;set ret=##class(Config.MapRoutines).Delete(ns,"stat.csp")
     #;set ret=##class(Config.MapRoutines).Delete(ns,"stat.csp*")
+#endif
+#if $$$nsCodeMapModel="Routine"
     set ret=##class(Config.MapRoutines).Delete(ns,"stat.csp.0")
     set ret=##class(Config.MapRoutines).Delete(ns,"stat.csp.1")
     set ret=##class(Config.MapRoutines).Delete(ns,"stat.lib")
+#endif
     set ret=##class(Config.MapGlobals).Delete(ns,"SYS(""stat"")")
+#if $$$nsCodeMapModel="GlobalROBJ"
+    for rtn="stat.csp.0","stat.csp.1","stat.lib" {
+      set ret=##class(Config.MapGlobals).Delete(ns,"rOBJ("""_rtn_""")")
+      do ..smsg(ret,"for namespace "_ns_" remove rOBJ"""_rtn_""") mapping")
+    }
+#endif
  }
  set @CtlGlo@("csp","installed")=0
+]]></Implementation>
+</Method>
+
+<Method name="CspBrokerPatchInstall">
+<Description><![CDATA[
+Modify %CSP.Broker class for csp server stat class, method, arguments<br/>
+it only modifies source code but doesn't compile class]]></Description>
+<ClassMethod>1</ClassMethod>
+<Implementation><![CDATA[
+ set m=##class(%Dictionary.MethodDefinition).%OpenId("%CSP.Broker||XecuteStr",,.ret)
+ if +ret=0 set retq=$LB(0,"%CSP.Broker has no source, reinstall/update with system source",ret) quit retq
+ set $LB(patchcode1,patchcode2,comment)=..CspBrokerPatchCode()
+ set c=m.Implementation
+ do c.Rewind()
+ set c2=$classmethod($classname(c),"%New")
+ set eol=0
+ for {
+   set len=32000
+   set t=c.ReadLine(.len,.ret,.eol)
+   set codeold($I(codeold))=t
+   if $E(t,$L(t))=$C(13) set $E(t,$L(t))=""
+   if len=-1 quit
+   set t2=$zstrip(t,"<=>"," ","")
+   set t2=$zstrip(t2,"<",$C(9),"")
+   if t2="For i=1:1:count {" { set match(1)=1 goto copycode }
+   elseif t2="If i>1 Set code=code_"",""" { set match(2)=1 goto copycode }
+   elseif t2="Set arg=""WARG_""_i" { set match(3)=1 goto copycode }
+   elseif t2="If $Data(%request.Data(arg,1)) {" { set match(4)=1 goto copycode }
+   elseif t2="Set code=code_""%request.Data(""""""_arg_"""""",1)""" { set match(5)=t goto copycode }
+   elseif t2="Set code=newList_$select(newList="""":"""",1:"" "")_setList_code_"")""" { set match(6)=t goto copycode }
+   
+   if $G(match(5))'="" && (+$G(matchdone(5))=0) {
+ #; if there is and commented then uncomment
+     set matchdone(5)=1
+     set tm=match(5) for i=1:1 { quit:'(($E(tm,i)=" ")||($E(tm,i)=$C(9))) } set leftskip=i-1
+     if $F(t2,patchcode1) {
+       if $E(t,leftskip+1,leftskip+2)="#;" { set uncommentpatch(5)=1 do c2.WriteLine($E(tm,1,leftskip)_patchcode1_comment) }
+       else { set ispatch(1)=1 }
+     }
+     else { do c2.WriteLine($E(tm,1,leftskip)_patchcode1_comment) set addpatch(1)=1 }
+     if (($G(ispatch(5))=1)||($G(uncommentpatch(5)))=1) { continue } goto copycode
+   }
+   if $G(match(6))'="" && (+$G(matchdone(6))=0) { set matchdone(6)=1 do match6 if (($G(ispatch(6))=1)||($G(uncommentpatch(6)))=1) { continue } goto copycode }
+copycode
+   do c2.WriteLine(t)
+ }
+ if $G(match(6))'="" && (+$G(matchdone(6))=0) { set matchdone(6)=1 do match6 }
+ #;B  /* code transformation*/
+ if $G(ispatch(1),0) && $G(ispatch(2),0) { set retq=$LB(1,"patch already installed") quit retq }
+ if '($G(matchdone(5),0) && $G(matchdone(6),0)) { set retq=$LB(0,"patch failed to apply") quit retq }
+ set m.Implementation=c2
+ #;B  /*before save*/
+ set ret=m.%Save()
+ if +ret=1 { set retq=$LB(1,"update") } else { set retq=$LB(0,"update",ret) }
+ #;B  ;exit
+ quit retq
+match6
+ set tm=match(6) for i=1:1 { quit:'(($E(tm,i)=" ")||($E(tm,i)=$C(9))) } set leftskip=i-1
+ if $F(t2,patchcode2) {
+   if $E(t,leftskip+1,leftskip+2)="#;" { set uncommentpatch(6)=1 do c2.WriteLine($E(tm,1,leftskip)_patchcode2_comment) }
+   else { set ispatch(2)=1 }
+ }
+ else { do c2.WriteLine($E(tm,1,leftskip)_patchcode2_comment) set addpatch(2)=1 }
+ set matchdone(6)=1
+ quit
+]]></Implementation>
+</Method>
+
+<Method name="CspBrokerPatchUninstall">
+<Description><![CDATA[
+remove patch code modification done by CspBrokerPatchInstall<br/>
+optRemove - 0 comment out patch code<br/>
+1 remove patch code]]></Description>
+<ClassMethod>1</ClassMethod>
+<FormalSpec>optRemove=0</FormalSpec>
+<Implementation><![CDATA[
+ set m=##class(%Dictionary.MethodDefinition).%OpenId("%CSP.Broker||XecuteStr",,.ret)
+ if +ret=0 set retq=$LB(0,"%CSP.Broker has no source, reinstall/update with system source",ret) quit retq
+#; to do replace t
+ set patchcode1="set brkargs($I(brkargs))=$G(%request.Data(arg,1))"
+ set patchcode2="try { do ##class(stat.csp).OnBrokerCall(cls,method,.brkargs) } catch{} kill brkargs"
+ set statcspPatchComment=" // stat.csp patch"
+ set c=m.Implementation
+ do c.Rewind()
+ set c2=$classmethod($classname(c),"%New")
+ for {
+   set len=32000
+   set t=c.ReadLine(.len,.ret,.eol)
+   if len=-1 quit
+   set codeold($I(codeold))=t
+   set t2=$zstrip(t,"<=>"," ","")
+   set t2=$zstrip(t2,"<",$C(9),"")
+   if t2="For i=1:1:count {" { set match(1)=1 goto copycode }
+   elseif t2="If i>1 Set code=code_"",""" { set match(2)=1 goto copycode }
+   elseif t2="Set arg=""WARG_""_i" { set match(3)=1 goto copycode }
+   elseif t2="If $Data(%request.Data(arg,1)) {" { set match(4)=1 goto copycode }
+   elseif t2="Set code=code_""%request.Data(""""""_arg_"""""",1)""" { set match(5)=t goto copycode }
+   elseif t2="Set code=newList_$select(newList="""":"""",1:"" "")_setList_code_"")""" { set match(6)=1 goto copycode }
+   
+   if $G(match(5))'="" && (+$G(matchdone(5))=0) {
+     set matchdone(5)=1
+     for i=1:1 { quit:'(($E(t,i)=" ")||($E(t,i)=$C(9))) } set leftskip=i-1
+     if $F(t,patchcode1) {
+       if optRemove=0 {
+         if $E(t,leftskip+1,leftskip+2)="#;" { set alreadycommentpatch(1)=1 goto copycode }
+         else { do c2.WriteLine($E(t,1,leftskip)_"#;"_patchcode1_statcspPatchComment) set rmbycommentpatch(1)=1
+         }
+       } else { set rmpatch(1)=1 }
+       continue
+     }
+     goto copycode
+   }
+   if $G(match(6))'="" && (+$G(matchdone(6))=0) {
+     set matchdone(6)=1
+     for i=1:1 { quit:'(($E(t,i)=" ")||($E(t,i)=$C(9))) } set leftskip=i-1
+     if $F(t,patchcode2) {
+       if optRemove=0 {
+         if $E(t,leftskip+1,leftskip+2)="#;" { set alreadycommentpatch(2)=1 goto copycode}
+         else { do c2.WriteLine($E(t,1,leftskip)_"#;"_patchcode2_statcspPatchComment) set rmbycommentpatch(2)=2 }
+       } else { set rmpatch(2)=1 }
+       continue
+     }
+     goto copycode
+   }
+copycode
+  do c2.WriteLine(t)
+ }
+#; pacth remove by comment out line by #:
+ if $G(alreadycommentpatch(1),0) && $G(alreadycommentpatch(2),0) { set retq=$LB(1,"patch already removed by comment out #;") quit retq }
+ set m.Implementation=c2
+#;B  ; uninstall before save
+ set ret=m.%Save()
+ if +ret=1 { set retq=$LB(1,"update") } else { set retq=$LB(0,"update",ret) }
+#; B  ;exit
+ quit retq
+]]></Implementation>
+</Method>
+
+<Method name="CspBrokerPatchCode">
+<ClassMethod>1</ClassMethod>
+<Implementation><![CDATA[
+ 
+ quit $LB(
+   "set brkargs($I(brkargs))=$G(%request.Data(arg,1))",
+   "try { do ##class(stat.csp).OnBrokerCall(cls,method,.brkargs) } catch{} kill brkargs",
+    " // stat.csp patch"
+ )
 ]]></Implementation>
 </Method>
 

@@ -9,7 +9,7 @@ Property ReqId As %String;
 Property gwReqId As %String;
 
 /// time spent to process http request, storage slot 8
-Property duration As %String;
+Property duration As %Double;
 
 /// time start of http processing, storage slot 9
 Property tsStart As %String;
@@ -60,22 +60,43 @@ Property inSessionId As %String;
 Property LicenseId As %String;
 
 /// number of COS ?tokens/lines? executed, storage slot 20
-Property tokens As %String;
+Property tokens As %BigInt;
 
 /// global accessed during request execution, storage slot 21
-Property GloRef As %String;
+Property GloRef As %BigInt;
 
 /// globals updates during request execution, storage slot 22
-Property GloUpd As %String;
+Property GloUpd As %BigInt;
 
 /// physical read during request execution, storage slot 23
-Property PhyRd As %String;
+Property PhyRd As %BigInt;
+
+// Property broker As stat.cspAccessLogBroker;
+
+Property BrkClass As %String;
+
+Property BrkMethod As %String;
+
+Property BrkNArgs As %Integer;
+
+/// Use vBrkArgs in sql since BrksArgs is Cache List and it is binary
+Property BrkArgs As %String;
+
+/// represent argument as quoted string in comma list<br/>
+/// don't expect it is correct since it is correct as correct zw<br/>
+/// anyway it is mainly to view string data<br/>
+/// binary might be displayed incorrectly<br/>
+Property vBrkArgs As %String [ Calculated, SqlComputeCode = { 
+    set v={BrkArgs} set n={BrkNArgs} 
+    set x="" for i=1:1:n { set x=x_$case(x="",1:"",:",")_$$Format^%qcr($LG(v,i),1) }
+    set {*}=x
+  }, SqlComputed ];
 
 /// time to run
-Property cpurun As %BigInt;
+Property cpurun As %Double;
 
 /// time to wait in runqueue
-Property cpurunqueue As %BigInt;
+Property cpurunqueue As %Double;
 
 /// number of timeslices for process
 Property cputimeslices As %Integer;
@@ -110,12 +131,12 @@ ClassMethod LoadFromCSPServerLog(file) As %String
      set cliport=$P(tx,",",14)
      set gwhost=$P(tx,",",15)
      set gwport=$P(tx,",",16)
-     set ^|"^^"_$zu(12)_"cache"|stat.csp(reqid)=$LB(,,,,sessionid/*5inSessionId*/,,gwReqId/*7*/,,ts/*9*/,,url/*11*/,method/*12*/,ns,class,cspapp,cliip,cliport,gwhost,gwport)
+     set ^|"SYSSTAT"|stat.csp(reqid)=$LB(,,,,sessionid/*5inSessionId*/,,gwReqId/*7*/,,ts/*9*/,,url/*11*/,method/*12*/,ns,class,cspapp,cliip,cliport,gwhost,gwport)
    }
    elseif state="e" {
      set ts=$P(tx,",",1)
      set reqid=$P(tx,",",2)
-     set data=$G(^|"^^"_$zu(12)_"cache"|stat.csp(reqid))
+     set data=$G(^|"SYSSTAT"|stat.csp(reqid))
      set sessionid=$P(tx,",",4)/*sessionid*/
      set $LI(data,2)=sessionid
      set $LI(data,3)=$P(tx,",",6)/*session start*/
@@ -127,13 +148,28 @@ ClassMethod LoadFromCSPServerLog(file) As %String
      set $LI(data,21)=$P(tx,",",10)/*GloRef*/
      set $LI(data,22)=$P(tx,",",11)/*GloUpd*/
      set $LI(data,23)=$P(tx,",",12)/*PhyRd*/
-     set ^|"^^"_$zu(12)_"cache"|stat.csp(reqid)=data
+     set $LI(data,24)=$P(tx,",",13)/*cpurun*/
+     set $LI(data,25)=$P(tx,",",14)/*cpurunqueue*/
+     set $LI(data,26)=$P(tx,",",15)/*cputimeslices*/
+     set $LI(data,27)=$P(tx,",",16)/*broker class*/
+     set $LI(data,28)=$P(tx,",",17)/*broker method*/
+     set $LI(data,29)=$P(tx,",",18)/*broker argument number*/
+     if reqid'="" && $D(BrokerArgs(reqid)) set $LI(data,30)=BrokerArgs(reqid) kill BrokerArgs(reqid)
+     set ^|"SYSSTAT"|stat.csp(reqid)=data
+   }
+   elseif state="ba" {
+     set o=$F(tx,",ba,")
+     set BrokerArgs=$SYSTEM.Encryption.Base64Decode($E(tx,o,*))
+     set tx1=$E(tx,1,o-2)
+     set reqid=$P(tx1,",",2)
+     if reqid'="" set BrokerArgs(reqid)=$G(BrokerArgs)
    }
  }
  use 0 close file
  quit 1
 }
 
+/// does't support export broker details(class,method,args) yet
 ClassMethod ExportToCSPServerLog() As %String
 {
  open file:("RS"):0.1 if $test=0 quit -1
@@ -160,7 +196,7 @@ ClassMethod ExportToCSPServerLog() As %String
      set cliport=$P(tx,",",14)
      set gwhost=$P(tx,",",15)
      set gwport=$P(tx,",",16)
-     set ^|"^^"_$zu(12)_"cache"|stat.csp(reqid)=$LB(,,,,sessionid/*5refusedsessionid*/,,gwReqId/*7*/,,ts/*9*/,,url/*11*/,method/*12*/,ns,class,cspapp,cliip,cliport,gwhost,gwport)
+     set ^|"SYSSTAT"|stat.csp(reqid)=$LB(,,,,sessionid/*5refusedsessionid*/,,gwReqId/*7*/,,ts/*9*/,,url/*11*/,method/*12*/,ns,class,cspapp,cliip,cliport,gwhost,gwport)
    }
    elseif state="e" {
      set ts=$P(tx,",",1)
@@ -182,7 +218,7 @@ ClassMethod ExportToCSPServerLog() As %String
      set $LI(data,24)=$P(tx,",",13)/*cpurun*/
      set $LI(data,25)=$P(tx,",",14)/*cpurunqueue*/
      set $LI(data,26)=$P(tx,",",15)/*cputimeslices*/
-     set ^|"^^"_$zu(12)_"cache"|stat.csp(reqid)=data
+     set ^|"SYSSTAT"|stat.csp(reqid)=data
    }
  }
  use 0 close file
@@ -270,12 +306,24 @@ Storage Default
 <Value name="26">
 <Value>cputimeslices</Value>
 </Value>
+<Value name="27">
+<Value>BrkClass</Value>
+</Value>
+<Value name="28">
+<Value>BrkMethod</Value>
+</Value>
+<Value name="29">
+<Value>BrkNArgs</Value>
+</Value>
+<Value name="30">
+<Value>BrkArgs</Value>
+</Value>
 </Data>
-<DataLocation>^|"^^"_$zu(12)_"cache"|stat.csp</DataLocation>
+<DataLocation>^|"SYSSTAT"|stat.csp</DataLocation>
 <DefaultData>StatCSPAccessLog</DefaultData>
-<IdLocation>^|"^^"_$zu(12)_"cache"|stat.csp.id</IdLocation>
-<IndexLocation>^stat.csp.I</IndexLocation>
-<StreamLocation>^stat.csp.S</StreamLocation>
+<IdLocation>^|"SYSSTAT"|stat.csp.id</IdLocation>
+<IndexLocation>^|"SYSSTAT"|stat.csp.i</IndexLocation>
+<StreamLocation>^|"SYSSTAT"|stat.csp.s</StreamLocation>
 <Type>%Library.CacheStorage</Type>
 }
 

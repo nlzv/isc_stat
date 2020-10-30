@@ -13,7 +13,9 @@ usectr(jid="") public {
  set xjid=$zu(61,30,jid)
  if xjid=0 quit ""
  quit xjid\65536
-} 
+}
+#; process table entry usage count
+pteuc(jid="") public { if jid="" { set jid=$zu(61)} set xjid=$zu(61,30,jid) if xjid=0 { quit "" } quit xjid\65536 }
  #; check in CtlGlo processes table process with given jid
 CtlGloCheckProcess(jid,fix=0) public {
  set ret=$LB(1) 
@@ -27,9 +29,9 @@ CtlGloCheckProcess(jid,fix=0) public {
      do CtlGloKillProc(jid,daemon)
      if pid'=pidnow  { set ret=$LB(0,"SysPidChanged") }
      elseif pteuc'=pteucnow { set ret=$LB(0,"SysPidChanged") }
-   }  
- }   
- quit ret  
+   }
+ }
+ quit ret
 }
 #; check all processes for daemon
 CtlGloCheckDaemon(daemon,&pte) public {
@@ -39,11 +41,11 @@ CtlGloCheckDaemon(daemon,&pte) public {
    if pdaemon=daemon {
      set pidnow=$zu(61,17,jid)
      set pteucnow=$zu(61,30,jid)\65536
-     if pidnow=pid && (pteucnow=pteuc) { set pte(jid)=pi } 
+     if pidnow=pid && (pteucnow=pteuc) { set pte(jid)=pi }
      else { do CtlGloKillProc(jid,daemon) }
-   } 
- } 
-} 
+   }
+ }
+}
 #; check all daemons for right process info in CtlGlo process table
 CtlGloCheckAllProcs() public {
  set CtlGlo=$$CtlGlo^stat
@@ -53,7 +55,7 @@ CtlGloCheckAllProcs() public {
     set pidnow=$zu(61,17,jid)
     set pteucnow=$zu(61,30,jid)\65536
     if pid=pidnow && (pteuc=pteucnow) {}
-    else { do CtlGloKillProc(jid,daemon) }  
+    else { do CtlGloKillProc(jid,daemon) }
  }
  set pi=$G(@CtlGlo@("strace.dw","pi")) if pi'="" {
    set $LB(jid,pid,pteuc)=pi if '$$CheckProc(jid,pid,pteuc) kill @CtlGlo@("strace.dw","pi")
@@ -66,8 +68,8 @@ CheckProc(jid,pid,pteuc) public {
  set pidnow=$zu(61,17,jid) /* pid now */
  if pid=pidnow {
      set pteucnow=$zu(61,30,jid)\65536 /* pteuc now */
-     if pteucnow'=pteuc { set ret=1 } 
-     else { set ret=0 } 
+     if pteucnow'=pteuc { set ret=1 }
+     else { set ret=0 }
  } else { set ret=0 }
  quit ret
 }   
@@ -89,9 +91,7 @@ FindDaemon(code,codename) public {
 }  
  #; date D8 format YYYYMMDD
  #; transform horolog date to D8 format
-dateHtoD8(hdate) public {
-  quit $zd(hdate,8) 
-}
+dateHtoD8(hdate) public { quit $zd(hdate,8) }
  #; log name timestamp part YYYY_MM_DD_h_m_s
  
  #; log name agreement date part [_]YYYY_MM_DD[_]
@@ -100,8 +100,9 @@ dateHtoD8(hdate) public {
 dateD8toLNA(d8date,left=0,right=0) public {
   quit $case(left,1:"_",:"")_$E(d8date,1,4)_"_"_$E(d8date,5,6)_"_"_$E(d8date,7,8)_$case(right,1:"_",:"")
 }
-dateLNAtoH(LNAdate) public {
-  quit $zdh($TR(LNAdate,"_",""),8)
+dateLNAtoH(LNAdate) public { quit $zdh($TR(LNAdate,"_",""),8) }
+MonthNameToNum(m) { set M=$zcvt(m,"U")
+ quit $case(M,"JANUARY":1,"FEBRUARY":2,"MARTCH":3,"APRIL":4,"MAY":5,"JUNE":6,"JULY":7,"AUGUST":8,"SEPTEMBER":9,"OCTOBER":10,"NOVEMBER":11,"DECEMBER":12,:"")
 }
  #; get logdir in canonical form i.e. fsdlm at the end
 logdir() public {
@@ -112,7 +113,7 @@ logdir() public {
      set logdir=logdir_$$fsdlm
    }
  }
- quit logdir 
+ quit logdir
 } 
 #; does not use any global
 #;(logdir,statlogprefix,h,delay,&count)
@@ -136,8 +137,8 @@ procmodes(&pmode,&dmodes) public {
 } 
 
 unix() public {
-  if $zversion(1)=3 quit 1
-  else  quit 0 
+ if $zversion(1)=3 quit 1
+ else  quit 0 
 }
 
 islinux() public {
@@ -147,20 +148,22 @@ islinux() public {
   quit 0
  }
  quit 0
-} 
+}
 GeneralPlatform() public {  set zver=$zversion(1) quit $case(zver,1:"openvms",2:"winnt",3:"unix",:"unknown") }
+platformtype() public {  set zver=$zversion(1) quit $case(zver,1:"openvms",2:"winnt",3:"unix",:"unknown") }
 platform() public {
  set zvplatform=$SYSTEM.Version.GetPlatform()
  set platform=""
  set i=$F($zcvt(zvplatform,"u"),"LINUX")  if i { set platform="linux" quit platform }
+ set i=$F($zcvt(zvplatform,"u"),"AIX")  if i { set platform="aix" quit platform }
  if platform="" && ($SYSTEM.Version.GetOS()="Windows") { set platform="winnt" quit platform }
 } 
 fsdlm() public {
  set zversion=$zversion(1) 
  if zversion=3 { quit "/" }
  elseif zversion=2 { quit "\" }
- elseif zversion=1 { quit "/" } 
-} 
+ elseif zversion=1 { quit "." }
+}
 #; what is new line character
 NL() public {
  set zversion=$zversion(1)
@@ -189,8 +192,8 @@ umaskston(sumask) public {
  if $E(sumask,8)="-" set o=o+2
  if $E(sumask,9)="-" set o=o+1
  quit u*8+g*8+o
-} 
-  
+}
+
 umaskntos(numask) public {
  set o=numask#8
  set numask=numask\8
@@ -213,17 +216,10 @@ umaskntos(numask) public {
  set s=s_$case($zboolean(o,1,1),0:"-",:"x")
  quit s
 }
- #; unpack list to name value pair options(name)=value 
-options(&options) public {
- set n=$LL(options)
- for i=1:1:n {
-   set option=$LG(options,1)
-   set name=$LG(option,1)
-   set value=$LG(option,2)
-   if name'="" set options(name)=valie
- }    
- quit
-} 
+ #; unpack list to name value pair options(name)=value
+options(&options) public { set n=$LL(options)
+ for i=1:1:n { set option=$LG(options,i) set name=$LG(option,1) set value=$LG(option,2) if name'="" { set options(name)=value } }
+ quit }
 
 #; find processes in ctlglo process table for given daemon name
 ctlgloproc(daemon,&pt,&tlen) public {
@@ -231,13 +227,13 @@ ctlgloproc(daemon,&pt,&tlen) public {
  set tlen=0
  set jid="" for {
    set jid=$order(^SYS("stat","proc",jid),1,pi) quit:jid=""
-   set what=$LG(pi,4)  
+   set what=$LG(pi,4)
    if what=daemon {
      set pt(jid)=pi
      set tlen=tlen+1 
-   } 
- }    
-} 
+   }
+ }
+}
 #; find list of jid for daemon
 #; normally should 1 item 
 #; old name procFindByDaemon
@@ -246,12 +242,12 @@ procFindByDaemon(daemon,&jidlist) public {
    set i=$order(^SYS("stat","proc",i),1,pi) quit:i=""
    set $LB(jid,,,daemon2)=pi
    if daemon=daemon2 { set jidlist=jidlist_$LB(jid) }
- }   
-}  
+ }
+}
 
 #; register proc
 CtlGloSelfProcStart(daemon="")
- set ^SYS("stat","proc",$$$SelfJid)=$LB($$$SelfJid,$job,$$$SelfPteuc,daemon)
+ set ^SYS("stat","proc",$$$SelfJid)=$LB($$$SelfJid,$P($job,":",1),$$$SelfPteuc,daemon)
  if daemon'="" set ^SYS("stat","daemon",daemon,$$$SelfJid)=""
  quit
 #; unregister proc
@@ -263,8 +259,7 @@ CtlGloKillProc(jid="",daemon="")
  if jid="" quit
  kill ^SYS("stat","proc",jid)
  if daemon'="" kill ^SYS("stat","daemon",daemon,jid)
- quit 
-
+ quit
 
 FindObjectInArrayByClass(&ObjsArray,class) public {
  set reto="" 
@@ -273,9 +268,10 @@ FindObjectInArrayByClass(&ObjsArray,class) public {
    if $isobject(o) && ($P(o,"@",2)=class) {
      set reto=o quit
    }
- } 
+ }
  quit reto
 }
+
 genstracesh() public {
  set bindir=$SYSTEM.Util.BinaryDirectory()
  set sh="stat.strace.sh"
@@ -324,9 +320,9 @@ delTrigger(stattype="",statname="",op="",limit="",triggercode="") [doTriggers,tr
        if t=triggercode {
          set triggervalue=0
          try {
-           #;do $zu(9,"",$ZNAME_" delTrigger triggercode "_triggercode)
+           do $zu(9,"",$ZNAME_" delTrigger triggercode "_triggercode)
            X triggercode
-           #;do $zu(9,"",$ZNAME_" delTrigger success X triggercode="_triggercode)
+           do $zu(9,"",$ZNAME_" delTrigger success X triggercode="_triggercode)
          } catch e { do $zu(9,"",$ZNAME_" $ZE="_$ZE) }
          kill triggers(stattype,statname,op,limit,i)
        }
@@ -335,11 +331,131 @@ delTrigger(stattype="",statname="",op="",limit="",triggercode="") [doTriggers,tr
    if $order(triggers(""))="" set doTriggers=0
  } catch e { if $classname(e)="%Exception.SystemException" { do $zu(9,"",$ZNAME_" $ZE="_(e.AsSystemError())) } }
  quit
-} 
+}
  #; send signal to delete triggers
-DeleteTriggers(daemon,type="",name="",op="",limit="",triggercode="") public { 
+DeleteTriggers(daemon,type="",name="",op="",limit="",triggercode="") public {
  try { set ret=$SYSTEM.Event.Signal($$DaemonSignal^@daemon,$LB("delTrigger",type,name,op,limit,triggercode)) }
  catch e {}
- } 
+}
+#; check $ZF(-100) and new command pipe
+NoShellExec(&is) public{ set $ztrap="error" set x=$ZF(-100,"","") set is="" quit
+error if $P($ZE,">")="<FUNCTION" { set is=0 } elseif $P($ZE,">")="<ILLEGAL VALUE" { set is=1 } else { set is=""}
+}
+ #; can we use new pipe supporting no shell, and $zf(-100) no shell?
+NoShellNewProc(&is) public { set $ztrap="error"
+ set ret=$ZF(-100,"","/usr/bin/pwd")
+ set is=1 quit
+error
+ set $ztrap="" set is=0 quit
+}
+#; cmd command and argumens
+shellexec(cmd,&cmdout) public {
+ set cmddev="|CPIPE|cmd" open cmddev:(cmd:"QR"):1 if $test=0 quit 0
+ set oldeof=$SYSTEM.Process.SetZEOF(1) set iline=0 kill cmdout set io=$io use cmddev
+ for { read x quit:$zeof=-1  set cmdout($I(iline))=x }
+ use io close cmddev  if oldeof=0 { do $SYSTEM.Process.SetZEOF(0) } quit 1
+}
+whereis(cmd) public {
+ set cmddev="|CPIPE|whereis" open cmddev:("whereis "_cmd:"QR"):1 if $test=0 quit ""
+ set oldeof=$SYSTEM.Process.SetZEOF(1) use cmddev read x close cmddev if oldeof=0 { do $SYSTEM.Process.SetZEOF(0) } quit x
+}
+posixlocalelctime(&a) public {
+ do NoShellNewProc(.noshell)
+ set io=$io
+ set eof=$SYSTEM.Process.SetZEOF(1)
+ set ret=$LB(1)
+ set cmddev="|CPIPE|"
+ if noshell && 0 {
+   set cmd="/usr/bin/locale"
+   set args($I(args))="-k"
+   set args($I(args))="LC_TIME"
+ }
+ else {
+   set cmd="locale -k LC_TIME"
+   open cmddev:(cmd:"QR"):1 if $test=0 set ret=$LB(0) goto exit
+   use cmddev for {
+     read tx if $zeof=-1 quit
+     set n=$P(tx,"=",1)
+     set v=$E(tx,$L(n)+2,*)
+     if n'="" set a(n)=v
+   }
+   use io close cmddev
+ }
+exit
+ if eof=0 do $SYSTEM.Process.SetZEOF(eof)
+}
+#; code for ts transformation
+#; $xecute(tscode,ts)
+xecutecodets(dfmt,tfmt,&tscode,fmt) public {
+ set tfmt=$zstrip(tfmt,"<>","""","")
+ set dfmt=$zstrip(dfmt,"<>","""","")
+ set dlm="/"
+ if $L(dfmt,dlm)=3 {
+   set x(1)=$P(dfmt,dlm,1)
+   set x(2)=$P(dfmt,dlm,2)
+   set x(3)=$P(dfmt,dlm,3)
+   set offset=1
+   for i=1:1:3 {
+     set v=x(i)
+     if v="%m" { set code("m")="$E(ts,"_offset_","_(offset+1)_")" set offset=offset+3 }
+     elseif v="%d" { set code("d")="$E(ts,"_offset_","_(offset+1)_")" set offset=offset+3 }
+     elseif v="%Y" { set code("Y")="$E(ts,"_offset_","_(offset+3)_")" set offset=offset+5 }
+     elseif v="%y" { set code("y")="$E(ts,"_offset_","_(offset+1)_")" set offset=offset+3 }
+   }
+ }
+ #; 07/09/2020 02:27:13 PM
+ if tfmt="%r" {
+   set code("ampm")="$E(ts,"_(offset+9)_","_(offset+10)_")"
+   set code("H")="$E(ts,"_(offset)_","_(offset+1)_")"
+   set code("M")="$E(ts,"_(offset+3)_","_(offset+4)_")"
+   set code("S")="$E(ts,"_(offset+6)_","_(offset+7)_")"
+ }
+ elseif tfmt="%H:%M:%S" {
+   set code("H")="$E(ts,"_(offset)_","_(offset+1)_")"
+   set code("M")="$E(ts,"_(offset+3)_","_(offset+4)_")"
+   set code("S")="$E(ts,"_(offset+6)_","_(offset+7)_")"
+ }
+ else {
+ }
+ if $D(code("ampm")) {
+   if $D(code("Y")) {
+     set tscode="(ts) quit "_code("Y")_"_""-""_"_code("m")_"_""-""_"_code("d")_"_"" ""_"_"$case("_code("ampm")_"=""PM"",1:"_code("H")_"+12,:"_code("H")_")_"":""_"_code("M")_"_"":""_"_code("S")
+   }
+   elseif $D(code) {
+     set tscode="(ts) set y="_code("y")_" quit $case(y<70,1:""20""_y,:""19""_y)_""-""_"_code("m")_"_""-""_"_code("d")_"_"" ""_"_"$case("_code("ampm")_"=""PM"",1:"_code("H")_"+12,:"_code("H")_")_"":""_"_code("M")_"_"":""_"_code("S")
+   }
+ }
+ else {
+   if $D(code("Y")) {
+     set tscode="(ts) quit "_code("Y")_"_""-""_"_code("m")_"_""-""_"_code("d")_"_"" ""_"_code("H")_"_"":""_"_code("M")_"_"":""_"_code("S")
+   }
+   elseif $D(code("y")) {
+     set tscode="(ts) set y="_code("y")_" quit $case(y<70,1:""20""_y,:""19""_y)_""-""_"_code("m")_"_""-""_"_code("d")_"_"" ""_"_code("H")_"_"":""_"_code("M")_"_"":""_"_code("S")
+   }
+ }
+ quit
+}
+#; check presense of zip utility
+chkZip(&zip,&version,&versionts,&cmdout) public
+ do shellexec("zip -h",.cmdout)
+ set i="" for { set i=$order(cmdout(i),1,t) if i="" { set t="" quit }
+   if $P(t," ",1)="Zip" { quit}
+ }
+ if t'="" {
+   set zip=$P(t," ",1) set version=$P(t," ",2)
+     set o1=$F(t,"(") set o2=$F(t,")") if o2>o1>0 {
+     set versionts=$E(t,o1,o2-2)
+     set m=$P(versionts," ",1) set d=+$P(versionts," ",2) set y=$P(versionts," ",3)
+     set mnum=$$MonthNameToNum(m)
+     set versionts=y_$TR($J(mnum,2)," ","0")_$TR($J(d,2)," ","0")
+   }
+ }
+ quit
+chkTarGz()
+ set whereistar=$$whereis^stat.lib("tar")
+ set whereisgzip=$$whereis^stat.lib("gzip")
+ if $P(whereistar," ",2)'="" & ($P(whereisgzip," ",2)'="") quit 1
+ quit 0
+
 ]]></Routine>
 </Export>
