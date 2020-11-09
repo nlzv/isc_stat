@@ -291,7 +291,7 @@ NoJournal() public { do DISABLE^%SYS.NOJRN }
 statlog(location="",&Text) [statlog,logdir,NL] public {
  set log=logdir_statlog
  if ##class(%File).Exists(logdir_statlog) { open log:("AWS"):1 if '$test {} }
- else { open log:("AWS"):1 if '$test {} } 
+ else { open log:("NWS"):1 if '$test {} } 
  set text=$zdt($h,3)_$case(location,"":"",:" "_location)
  if $D(Text)#2=1 { set text=text_" "_Text_NL }
  set i="" for { set i=$order(Text(i),1,d) quit:i=""  set text=text_" "_d_NL }
@@ -353,7 +353,7 @@ shellexec(cmd,&cmdout) public {
  set cmddev="|CPIPE|cmd" open cmddev:(cmd:"QR"):1 if $test=0 quit 0
  set oldeof=$SYSTEM.Process.SetZEOF(1) set iline=0 kill cmdout set io=$io use cmddev
  for { read x quit:$zeof=-1  set cmdout($I(iline))=x }
- use io close cmddev  if oldeof=0 { do $SYSTEM.Process.SetZEOF(0) } quit 1
+ use io close cmddev if oldeof=0 { do $SYSTEM.Process.SetZEOF(0) } quit 1
 }
 whereis(cmd) public {
  set cmddev="|CPIPE|whereis" open cmddev:("whereis "_cmd:"QR"):1 if $test=0 quit ""

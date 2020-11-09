@@ -1,0 +1,86 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Export generator="Cache" version="25">
+<Routine name="stat" type="MAC" languagemode="0"><![CDATA[
+ #; run simple terminal user interface for stat package
+ #; functions for SYSTEM^%ZSTART SYSTEM^%ZSTOP
+#include stat 
+ do CtlGloCheckAllProcs^stat.lib goto ^stat.stui
+ 
+ #; SYSTEM^%ZSTART
+ #; do startup^stat
+ #; it should be protected against COS error due to cache startup will not enable users
+ #; %System only in STU %SYSTEM^%ZSTART context
+startup() public {
+ set $ztrap="err" 
+ set n=$zu(41) set stu=0,istu=0,izstart=0 for i=n:-1:1 {
+   set rtn=$P($zu(41,i),"^",3)
+   if rtn="%ZSTART" { set izstart=i }
+   elseif rtn="STU" { set istu=i }
+   if istu>0 && (izstart>istu ) && ($username="%System"){ set stu=1 quit }
+ }  
+ set CtlGlo=$$CtlGlo
+ try { set jrn=$$SetJournal^%SYS.NOJRN(0) } catch {}
+ kill @CtlGlo@("proc") /* cleanup CtlGlo processes table */
+ kill @CtlGlo@("daemon")
+ set @CtlGlo@("boot")=stu
+ if $G(@CtlGlo,0) {
+   job run^stat.monitor
+   set pid=$zchild
+   if $G(@CtlGlo@("debug,daemon"),0) $$$ConLog("[statmon] startup create process pid="_pid)
+ }
+ try { do SetJournal^%SYS.NOJRN(jrn) } catch {}
+ quit
+err
+ $$$ConLog($ZNAME_" $ZE="_$ZE) 
+}
+ #; SYSTEM^%ZSTOP
+ #; do shutdown^monitor
+shutdown() public { 
+ #; wait with 5 seconds timeout
+ set ret=$$stop^stat.monitor("shutdown",0,5)
+ if $LG(ret,1)=0 do stop^stat.monitor("shutdown",1) /* forced stop */
+ quit
+}
+
+start() public {
+ job run^stat.monitor 
+}
+
+ #; timeout wait stop child daemon 
+stop(reason="user",force=0,timeout="") public {
+ set ret=$$stop^stat.monitor(reason,force,timeout) 
+ quit ret 
+}
+#; root global configuration and working
+CtlGlo() public { quit $name(^SYS("stat"))}
+
+ #; check running master monitor process
+ #; it check jobid in CtlGlo process table
+ #; it checks presence of master event
+ #; it checks lock 
+IsRunning() public {
+ set jid="",mpi="",mjid="" for  {
+   set jid=$order(^SYS("stat","proc",jid),1,pi) quit:jid=""
+   if $LI(pi,4)="master" set mpi=pi,mjid=jid quit
+ }
+ if mjid'="" {
+   set ret=$$CtlGloCheckProcess^stat.lib(mjid,1) if $LI(ret,1)=0 { set mjid="",mpi="" }
+ }
+ if mjid="" {
+   set event=$$DaemonEvent^stat.monitor()
+   if $SYSTEM.Event.Defined(event) { do $SYSTEM.Event.Delete(event) }
+ }
+ 
+ set lock=$$lock^stat.monitor
+ lock +@lock:0
+ if $test { lock -@lock set chklock=0 }
+ else  { set chklock=1 }
+    
+ if chklock&&(mpi'="") quit $LB(1)
+ if chklock=0&&(mpi="") quit $LB(0)
+ quit $LB(-1,"unknown")
+}  
+
+
+]]></Routine>
+</Export>

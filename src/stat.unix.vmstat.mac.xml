@@ -1,0 +1,186 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Export generator="Cache" version="25">
+<Routine name="stat.unix.vmstat" type="MAC" languagemode="0"><![CDATA[
+#; general unix vmstat customized for flawor of unix: linux,aix.
+#include stat
+log(delay="",count="",log="",statmon=0)
+ $$$PROCMODTRAP
+ set platformtype=$$platformtype^stat.lib
+ set platform=$$platform^stat.lib
+ if platformtype="unix" { do sumask^stat.lib("rw-rw-r--") }
+ set io=$io
+ 
+ if statmon=1 {
+   merge %debug=^SYS("stat","debug")
+   merge %debug=^SYS("stat","vmstat","debug")
+   set daemon=$$DaemonName
+   set DaemonLock=$$DaemonLock
+   lock +@DaemonLock:0.1 if $test'=1 $$$ConLog(daemon_" can acquire daemon lock "_DaemonLock) goto runexit
+   set DaemonSignal=$$DaemonSignal
+   set retSignal=$SYSTEM.Event.Create(DaemonSignal)
+   if retSignal'=1 {
+     $$$ConLog(daemon_" terminated: failure to create daemon signal "_DaemonSignal)
+     set reason="error craete daemon event"
+     goto runexit
+   }
+#; register itself in CtlGlo process table
+   do CtlGloSelfProcStart^stat.lib(daemon)
+#; send signal to master it registers daemon in it proc("daemon") var
+   do procstart^stat.monitor($$$SelfJid,$J,$$$SelfPteuc,daemon)
+   set MasterSignal=$$DaemonEvent^stat.monitor
+   set logdir=$$logdir^stat.lib
+   set CtlGlo=$$CtlGlo^stat.lib
+   if delay="" { set delay=$G(@CtlGlo@("interval"),1) }
+   if log="" { set hinit=$h set log=$$log^stat.lib(logdir,$$logprefix,hinit,delay,.logcount) }
+   set stop=0
+ }
+ else {
+   if log="" set log=$io
+ }
+ set oldeof=$SYSTEM.Process.SetZEOF(1)
+ if io'=log { open log:("NWS"):1 if $test=0 { $$$ConLog($ZNAME_" create file error "_log) goto runexit } }
+ do cmdinit(delay,count) if stop=1 { goto runexit }
+ set istat=0
+ do loop
+ if $G(exitreason,"pipeeof") { $$$ConLog($ZNAME_" exit pipeeof") }
+runexit
+ use io
+ if $G(dev)'="" try{close dev}catch{}
+ if io'=log try {close log}catch{}
+ if statmon=1 {
+   do CtlGloSelfProcStop^stat.lib(daemon)
+   do procstop^stat.monitor($$$SelfJid,$J,$$$SelfPteuc,daemon)
+   set ret=$SYSTEM.Event.Delete(DaemonSignal)
+   try { lock -@DaemonLock } catch {}
+ }
+ quit
+DaemonError
+ set $ztrap="" do $zu(9,"",$ZNAME_" exit $ZE="_$ZE) goto runexit
+loop
+ for {
+   if statmon=1&&(istat>0) { set retSignal=$SYSTEM.Event.WaitMsg(DaemonSignal,delay)
+     if $LG(retSignal,1)=1 { set msg=$LG(retSignal,2) do SignalHandler if stop=1 quit }
+   }
+   use dev read tx if $zeof=-1 { if $G(%debug("exit")) { set exitreason="pipeof" } quit }
+   set istat=istat+1
+   if platform="linux" {
+     if tx=hdr1 continue
+     if tx=hdr2 continue
+     set tx2=$tr($zstrip(tx,"<=>"," ","")," ",",")
+     set tx3=$P(tx2,",",1,HdrFields-1)
+     set date=$P(tx2,",",HdrFields)
+     set time=$P(tx2,",",HdrFields+1)
+     use log W date_" "_time_","_tx3,!
+   }
+#; pages break headers
+#;kthr    memory              page              faults              cpu             time  
+#;----- ----------- ------------------------ ------------ ----------------------- --------
+#; r  b   avm   fre  re  pi  po  fr   sr  cy  in   sy  cs us sy id wa    pc    ec hr mi se
+   elseif platform="aix" {
+     if (tx=Hdr4)||(tx=Hdr5)||(tx=Hdr6) { continue }
+     set tx2=$tr($zstrip(tx,"<=>"," ","")," ",",")
+     set tx3=$P(tx2,",",1,HdrFields-3)
+     set time=$P(tx2,",",HdrFields-2)
+     use log W date_" "_time_","_tx3,!
+   }
+   if +$G(count)>0 && ( istat '< count) quit
+ }
+ quit
+ 
+cmdinit(delay,count)
+ set dev="|CPIPE|"
+ do NoShellNewProc^stat.lib(.is)
+ if is=1 {
+    set cmd="/usr/bin/vmstat"
+    kill args
+    set args($I(args))="-t"
+    set args($I(args))=delay
+    if +$G(count)>0 set args($I(args))=count
+    #;zw args
+    open dev:(/COMMAND=cmd:/ARGS=args...)
+    use dev
+ }
+ else {
+    set cmd="vmstat -t "_delay_$case(+$G(count)>0,1:" "_count,:"")
+    open dev:(cmd:"Q")
+    use dev
+ }
+ if platform="linux" {
+   R hdr1
+   R hdr2
+   set chdr2=$tr($zstrip(hdr2,"<=>"," ","")," ",",")
+   set HdrFields=$L(chdr2,",")
+   set statinfo="ts,"_$P(chdr2,",",1,HdrFields-1)
+   use log W statinfo,!
+ }
+#; start header
+#;/usr/bin/vmstat -t 1 1
+#;
+#;System configuration: lcpu=32 mem=8192MB ent=1.00
+#;
+#;kthr    memory              page              faults              cpu             time  
+#;----- ----------- ------------------------ ------------ ----------------------- --------
+#; r  b   avm   fre  re  pi  po  fr   sr  cy  in   sy  cs us sy id wa    pc    ec hr mi se
+#;3  0 685467 1114133   0   0   0   0    0   0  15  321 121  0  0 99  0  0.01   0.8 08:59:22
+ elseif platform="aix" {
+   R Hdr1 // empty
+   R Hdr2 // System configuration
+   R Hdr3 // empty
+   R Hdr4 // groups
+   R Hdr5 // line
+   R Hdr6 // metrics
+   set csvHdrFields=$tr($zstrip(Hdr6,"<=>"," ","")," ",",")
+   set HdrFields=$L(csvHdrFields,",")
+   set statinfo="ts,"_$P(csvHdrFields,",",1,HdrFields-3)
+   use log W statinfo,!
+   set date=$zd($h,3)
+ }
+ else {
+   $$$ConLog($ZNAME_" exits, unknown platform") set stop=1 quit
+ }
+ quit
+
+DaemonSignal() public { quit "^"_$ZNAME }
+DaemonLock() public { quit "^"_$ZNAME }
+DaemonName() public { quit "vmstat" }
+logprefix() public { quit "stat_vmstat" }
+
+#; api start vmstat daemon
+start() public { job log("","","",1) }
+#; api stop vmstat daemon
+stop(reason="user") public { set ret=$SYSTEM.Event.Signal($$DaemonSignal,$LB("terminate",reason)) quit ret }
+switchlog() public { set ret=$SYSTEM.Event.Signal($$DaemonSignal,$LB("switchlog")) quit }
+#; standalone usage outside stat monitor
+display(delay,count,log="") do log(delay,count,log) quit
+
+SignalHandler
+ set cmd=$LG(msg,1)
+ if cmd="terminate" { do termvmstat set stop=1 }
+ elseif cmd="switchlog" {
+   close log
+   set h=$h set newlog=$$log^stat.lib(logdir,$$logprefix,h,delay,.logcount)
+   open newlog:("NWS"):1
+   if $test'=1 $$$ConLog($ZNAME_" exits, failure to create new open log file "_newlog) set stop=1 quit
+   use newlog
+   W statinfo,!
+   set log=newlog set istat=0
+ }
+ quit
+termvmstat() [platform] public {
+ set ret=$LB(1)
+ if platform="aix" { try {
+   set dev="|CPIPE|2"
+   open dev:("ps -o pid,ppid,args":"Q")
+   kill psout use dev for i=0:1 { read t quit:$zeof=-1  set psout(i)=$zstrip(t,"<=>"," ","") }
+   set n=$order(psout(""),-1)
+   set pid="" for i=1:1:n { if $P(psout(i)," ",3)="vmstat" { set pid=$P(psout(i)," ",1) quit } }
+   close dev
+   $$$ConLog($ZNAME_" kill -TERM pid="_pid)
+   open dev:("kill -TERM "_pid) close dev
+ } catch { $$$ConLog($ZNAME_" fail terminate iostat pid="_pid_", $ZE="_$ZE) set ret=$LB(0,"$ZE",$ZE) } }
+ quit ret
+}
+ 
+ quit
+]]></Routine>
+</Export>

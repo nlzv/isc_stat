@@ -1,0 +1,472 @@
+ROUTINE stat.winnt.perf
+ #include stat
+log(delay,count,log,statmon=0)
+ $$$PROCMODTRAP
+ set savedeof=$$eof^stat.lib(1)
+ set CtlGlo=$$CtlGlo^stat.lib
+ merge %debug=@CtlGlo@("debug",$ZNAME)
+ if statmon {
+   set logdir=$$logdir^stat.lib
+   set DaemonSignal=$$DaemonSignal set DaemonName=$$DaemonName set DaemonLock=$$DaemonLock
+   set retSignal=$SYSTEM.Event.Create(DaemonSignal)
+   if retSignal'=1 {
+     set exitreason="error create daemon event"
+     $$$ConLog(DaemonName_" terminated: "_exitreason_" "_DaemonSignal)
+     goto runexit
+   }
+   lock +@DaemonLock:1 if '$test {
+     set exitreason="unable to lock "_DaemonLock
+     $$$ConLog(DaemonName_" terminated: "_exitreason) goto runexit
+   }
+   if $G(delay)="" set delay=$G(@CtlGlo@("interval"),1)
+   set hinit=$h
+   if $G(log)="" { set log=$$log^stat.lib(logdir,$$logprefix,hinit,delay,.logcount) }
+   open log:("NWS"):1 if '$test {
+      set exitreason="create log file "
+      $$$ConLog(DaemonName_" terminated: "_exitreason_" "_log)
+      goto runexit
+   }
+   do CtlGloSelfProcStart^stat.lib(DaemonName)
+   do procstart^stat.monitor($$$SelfJid,$J,$$$SelfPteuc,DaemonName)
+#; argument overrides systat setting
+   set delay=$G(delay,$G(@CtlGlo@("interval"),1))
+   set statlog=logdir_"stat.log"
+ }
+ else {
+   if $G(log)'="" { open log:("NWS"):1 if $test { use log } }
+ }
+ do initCmd kill conftext
+ if $LG(retInitCmd,1)=0 {
+   $$$ConLog(DaemonName_" "_$LG(retInitCmd,2))
+   goto runexit
+ }
+ do loop
+runexit
+ use 0
+ try { close cmddev } catch {}
+ if $G(%debug($ZNAME),0) do $zu(9,"",$ZNAME_" exiting "_$G(exitreason))
+ if $G(log)'="" { try { close log } catch{} }
+ if statmon {
+   do CtlGloSelfProcStop^stat.lib(DaemonName)
+   do procstop^stat.monitor($$$SelfJid,$J,$$$SelfPteuc,DaemonName)
+   set ret=$SYSTEM.Event.Delete(DaemonSignal)
+   try { lock -@DaemonLock } catch {}
+ }
+ do eof^stat.lib(savedeof)
+ quit
+DaemonError
+ set $ztrap="" $$$ConLog($ZNAME_" error $ZE="_$ZE) goto runexit
+ quit
+loop
+ for {
+   if statmon=1 { set retSignal=$SYSTEM.Event.WaitMsg(DaemonSignal,0)
+     if $LG(retSignal,1)=1 { set msg=$LG(retSignal,2) do SignalHandler if $G(stop,0)=1 quit }
+   }
+   read text if $zeof=-1 quit
+   if $P(text,",",1)="Exiting" quit
+   set statlist=$LFS(text) set stat=""
+   set p=0 set i=0 while $listnext(statlist,p,v) {
+     set i=i+1
+     if i=1 {
+       set v=$zstrip(v,"<>","""","")
+       if v?2N1"/"2N1"/"4N1" "2N1":"2N1":"2N0.1"."0.6N {
+         set y=$E(v,7,10)
+         set m=$E(v,1,2)
+         set d=$E(v,4,5)
+         set t=$E(v,12,19)
+         set tsp=$P(v,".",2)
+         set timestattext=y_m_d_$tr(t,":","")_"."_tsp
+       }
+       else {
+#; if time format is not recognisable then leave time as is
+         set timestattext=v
+#;       B  ; unexpected timestamp format
+       }
+     }
+     else {
+       set v=+$zstrip(v,"<>","""","")
+       if v=0 set v=""
+       set stat=stat_","_v
+       if i=idxmAllCpuUser set mAllCpuUser=v
+     }
+   }
+   use log W timestattext_","_stat,! use cmddev
+   if $G(doTriggers,0) do triggers
+ }
+ quit
+DaemonSignal() public { quit "^"_$ZNAME }
+DaemonLock() public { quit "^"_$ZNAME }
+DaemonName() public { quit "winnt.perf" }
+logprefix() public { quit "stat_msperf" }
+#; api start msperf daemon
+start() public { job log("","","",1) }
+#; api  stop msperf daemon
+stop(reason="user") public { set ret=$SYSTEM.Event.Signal($$DaemonSignal,$LB("terminate",reason)) quit ret }
+switchlog() public { set ret=$SYSTEM.Event.Signal($$DaemonSignal,$LB("switchlog")) quit }
+SignalHandler
+ set cmd=$LG(msg,1)
+ if cmd="terminate" { set stop=1 }
+ elseif cmd="switchlog" {
+   close log
+   set hinit=$h
+   set log=$$log^stat.lib(logdir,$$logprefix,hinit,delay,.logcount)
+   do $zu(9,"",$ZNAME_" log="_$G(log))
+   open log:("NWS"):1
+   if $test {
+     use log W loghdrtext,!
+     use cmddev
+   }
+   else {
+     set exitreason="create log file"
+     $$$ConLog(DaemonName_" terminated: "_exitreason_" "_log)
+     set stop=1
+   }
+ }
+ elseif cmd="addTrigger" { do addTrigger($LG(msg,2),$LG(msg,3),$LG(msg,4),$LG(msg,5),$LG(msg,6)) }
+ elseif cmd="delTrigger" { do delTrigger($LG(msg,2),$LG(msg,3),$LG(msg,4),$LG(msg,5),$LG(msg,6) )}
+ quit
+#; make default msperfmon config if there is no config, open cpipe,build metric index
+#; loghdrtext
+initCmd
+ set msperfconf=$G(@CtlGlo@("msperf","config"))
+ if msperfconf="" { set msperfconf=$zu(12)_"msperf.default.config" set @CtlGlo@("msperf","config")=msperfconf }
+ if '##class(%File).Exists(msperfconf) {
+   do genPerfConfigDefault(msperconf)
+ }
+ open msperfconf:("RS"):1
+ if $test {
+   kill conftext use msperfconf
+   set i=1 for { read t quit:$zeof=-1  set conftext(i)=t set i=i+1 }
+   close msperfconf use 0
+ }
+ else { B  set retInitCmd=$LB(0,"open failure perfmon config file",msperfconf) quit }
+ set cmddev="|CPIPE|typeperf"
+ set cmd="""echo | chcp 437 | typeperf.exe -si "_delay_$case($G(count)="",1:"",:" -sc "_count)_" -cf " _msperfconf_""""
+ open cmddev:(cmd:"QR"):1
+ if $test=0 { set retInitCmd=$LB(0,"exec",cmd) quit}
+ use cmddev
+#; empty line
+ read texthdr1
+#; "(PDH-CSV 4.0)", "\\Host\type\metric"
+#; it might be long in length ? is able to read to $C(13,10) record delimiter?
+ read texthdr2
+ if texthdr1'="" { close cmddev use 0 set retInitCmd=$LB(0,"pdhcsv 1st line should be empty") B  quit }
+ set pdhsign=$zstrip($P(texthdr2,",",1),"<>","""","")
+ if pdhsign'="(PDH-CSV 4.0)" {
+   close cmddev use 0
+   set retInitCmd=$LB(0,"pdhcsv 2nd line no signature ") B  quit
+ }
+ set hdrlist=$LFS(texthdr2)
+ set i=0 set hdrlist2="" while $listnext(hdrlist,i,v) {
+   if $E(v,*)="""" set v=$E(v,1,$L(v)-1)
+   if $E(v,1)="""" set v=$E(v,2,*)
+#; strip host name
+   if $E(v,1,2)="\\" { set v2=$E(v,3,*) set v2=$P(v2,"\",2,3) } else { set v2=v }
+   set type=$P(v2,"\",1) set m=$P(v2,"\",2)
+   if type="Processor(_Total)" && (m="% User Time") { set idxmAllCpuUser=i }
+   set hdrlist2=hdrlist2_$LB(v2)
+ }
+ set hdrlist=hdrlist2
+ set pdhn=$LL(hdrlist)
+ set statn=$order(conftext(""),-1)
+ if statn+1'=pdhn {
+   close cmddev use 0
+   set retInitCmd=$LB(0,"pdhcsv wrong columns number config="_statn_", pdhcsv header "_(pdhn-1)) B  quit
+ }
+#; make header for csv log file
+#; ?should be made translation for windows code page which was default to utf8?
+ set loghdrtext="" for i=2:1:pdhn {
+   set v=$LG(hdrlist,i)
+#;   if $E(v,1,2)="\\" set v2=$E(v2,3,*) set v2=$P(v2,"\",2,3)
+#;   set loghdrtext=loghdrtext_","_v2
+   set loghdrtext=loghdrtext_","_v
+ }
+ set loghdrtext="time"_loghdrtext
+ use log W loghdrtext,!
+ use cmddev
+#;find index of some metrics
+ set retInitCmd=$LB(1)
+ quit
+ #; get names of performance metrics in english
+getMetricsInEnglish
+ kill textCodePage do shellexec^stat.lib("""echo | chcp """,.textCodePage)
+ set textCodePage=$G(textCodePage(1))
+ set textCodePage2=$P(textCodePage,":",2)
+ if textCodePage2?1" "3.4N { set CodePage=$zstrip(textCodePage2,"<"," ","") set translation="CP"_CodePage}
+ else { set CodePage="" set translation="" }
+ kill text do shellexec^stat.lib("""echo | chcp 437 | typeperf.exe -q""",.text)
+ kill metastat,metastattype do metastat(.text,.metastat,.metastattype)
+ #;B  ; initen
+ quit
+ 
+#; build name of metric name array
+#; input text is output of typeperf -q
+#; metastat(type,metric)=""
+#; metatstattype(type)=$LB("*",$LB())
+metastat(&text,&metastat,&metastattype) public {
+ set i=""  for {
+   set i=$order(text(i),1,t) quit:i=""
+   if t="" continue
+   if $E(t,1,4)="Exit" quit
+   if $E(t,1)'="\" continue
+   set name1=$P(t,"\",2)
+   if $E(name1,$L(name1)-2,$L(name1))="(*)" { set name1=$E(name1,1,$L(name1)-3)  set inst=$LB("*") }
+   else { set inst="" }
+   if '$D(metastattype(name1)) set metastattype(name1)=inst
+   set name2=$P(t,"\",3)
+   set metastat(name1,name2)=""
+ }
+}
+ #; run typeperf to get instances for given type in english
+ #; example metainst("Processor",)
+ #; instances list 
+metainst(metrictype,instances) public {
+ do shellexec^stat.lib(""" echo | chcp 437 | typeperf.exe -qx ""\"_metrictype_"\*"""_"""",.text)
+ set inst=""
+ set i="" for { set i=$order(text(i),1,t) quit:i=""
+   if t="" continue
+   if $E(t,1,4)="Exit" quit
+   if $E(t,1)'="\" continue
+   set name=$P(t,"\",2)
+   set o1=$F(name,"(") set o2=$F(name,")") if o1&&o2 {
+     set nametype=$E(name,o1,o2-2)
+     if $D(inst(nametype)) quit
+     set inst(nametype)=""
+   }
+ }
+ set instances="" set i="" for { set i=$order(inst(i)) quit:i=""  set instances=instances_$LB(i) }
+ #; B ; metainst quit
+}
+genPerfConfigUsingStatConfig(configfile)
+ quit
+ #; generate default config on the currect device
+genPerfConfigDefault(configfile)
+ kill textSystemInfo do shellexec^stat.lib("""echo | chcp 437 | systeminfo""",.textSystemInfo)
+ do getSystemInfoNet(.textSystemInfo,.net) kill textSystemInfo
+ do getMetricsInEnglish
+ if $G(configfile)'="" { set io=$io close configfile open configfile:("NWS"):1 if $test=1 { use configfile } else { quit $LB(0,"error create file") } }
+ set DefaultPerfTypes=$$DefaultPerfTypes
+ set itype=0 while $listnext(DefaultPerfTypes,itype,type) {
+   set meta=$G(metastattype(type))
+#; instances metrics
+   if $LG(meta,1)="*" {
+     do metainst(type,.instances)
+     if type="Processor"|| ( type="Processor Information" ) {
+       set m="" for { set m=$order(metastat(type,m)) quit:m=""  W "\"_type_"(_Total)\"_m,! }
+     }
+     elseif type="PhysicalDisk" {
+       set i=0 while $listnext(instances,i,inst) {
+         if inst="_Total" continue
+         set m="" for { set m=$order(metastat(type,m)) quit:m=""  W "\"_type_"("_inst_")\"_m,! }
+       }
+     }
+     elseif type="LogicalDisk" {
+       set i=0 while $listnext(instances,i,inst) {
+         if inst="_Total" continue
+         if inst?1A1":".E {
+           set m="" for { set m=$order(metastat(type,m)) quit:m=""  W "\"_type_"("_inst_")\"_m,! }
+         }
+       }
+     }
+     elseif type="Network Interface" {
+       do metainst(type,.instances)
+       set inetsysinfo="" for { 
+         set inetsysinfo=$order(net(inetsysinfo)) quit:inetsysinfo=""
+         set sysinfoname=$G(net(inetsysinfo,"cardname"))
+         set sysinfoname2=$G(net(inetsysinfo,"cardname2"))
+         set sysinfoname3=$G(net(inetsysinfo,"cardname3"))
+         set i=0 while $listnext(instances,i,perfname) {
+           if $F(perfname,sysinfoname2) {
+             set mapsysinfoperf(inetsysinfo)=perfname
+             set mapperfsysinfo1(sysinfoname)=inetsysinfo
+             set mapperfsysinfo2(sysinfoname2)=inetsysinfo
+           }
+         }
+       }
+       set inetsysinfo="" for {
+         set inetsysinfo=$order(net(inetsysinfo)) quit:inetsysinfo=""
+         set cardname3=$G(net(inetsysinfo,"cardname3"))
+         set m="" for {
+           set m=$order(metastat(type,m)) quit:m=""
+           W "\"_type_"("_cardname3_")\"_m,!
+         }
+       }
+     }
+   }
+   else {
+     if $listfind(DefaultPerfTypes,type) {
+       set m="" for { set m=$order(metastat(type,m)) quit:m=""  W "\"_type_"\"_m,! }
+     }
+   }
+ }
+ if $G(configfile)'="" { use io close configfile }
+ B  ; genPerfConfigDefault
+ quit $LB(1)
+ #; collected metrics by default
+DefaultPerfTypes() public {
+ quit $LB(
+  "Memory",
+  "Cache",
+  "Processor",
+  "Processor Information",
+  "PhysicalDisk",
+  "LogicalDisk"
+ )_$$DefaultNetworkTypes()
+}
+DefaultNetworkTypes() public {
+ quit $LB(
+  "Network Interface",
+  "Network Adapter", // >= w2k12
+  "IPv4",
+  "IPv6",
+  "UDPv4",
+  "UDPv6",
+  "TCPv4",
+  "TCPv6"
+ )
+}
+
+#; replace ( -> [, )->], /->_
+getSystemInfoNet(&text,&net) public {
+ set txkwnetcards="Network Card(s)"
+ for i=1:1 {
+   if '$D(text(i),t) set i="" quit
+   if $P(t,":")=txkwnetcards quit
+ }
+ if i="" quit
+ set inet=i
+ set txnetcards=$P(t,":",2,*)
+ set txnetcards2=$zstrip(txnetcards,"<"," ","")
+ set skip1=$L(txnetcards)-$L(txnetcards2)+$L(txkwnetcards)+1
+ set net=$P(txnetcards2,":")
+ set inetcard=""
+ #;B ; process network card info
+ for i=inet+1:1 {
+   if '$D(text(i),t) set i="" quit
+   set t2=$E(t,skip1+1,$L(t))
+   if $E(t2)="[" {
+     set t3=$P(t2," ")
+     if $E(t3,4)="]" { 
+       set inetcard=$E(t2,2,3) set netcardname=$E(t2,7,*)
+       set net(inetcard,"cardname")=netcardname
+       set cardname3=$TR(netcardname,"()/","[]_")
+       set net(inetcard,"cardname3")=cardname3
+       set netcardname2=$zstrip($TR(netcardname,"?()/"," []_"),"<>"," ","")
+       set net(inetcard,"cardname2")=netcardname2
+       continue
+     }
+   }
+   elseif $E(t2,1,6)="      " {
+     set t3=$E(t2,7,*)
+     set t3kw=$P(t3,":")
+     set t3v=$E(t3,$L(t3kw)+2,*)
+     if t3kw="Connection Name" { set net(inetcard,"Connection Name")=t3v }
+     elseif t3kw="IP address(es)" {
+       for i2=1:1 {
+         if '$D(text(i+i2),tf) quit
+         set tip=$E(tf,skip1+7,*)
+         if $E(tip,1)="["&&($E(tip,4,5)="]:") {
+           set iip=$E(tip,2,3)
+           set ip=$P(tip," ",2)
+           set net(inetcard,"ip",iip)=ip
+         }
+         else { quit }
+       }
+       set i=i+i2
+     }
+   }
+ }
+}
+statcpus
+ quit
+statcpusinfo
+ quit
+statpdisk
+ quit
+statldisk
+ quit
+ #; triggers(stattype,statname,op,limit,id)=triggercode
+ #; triggercode = (tag^rtn | class.method) 
+ #; call triggercode(triggervalue argument) 
+triggers
+ new id,limit,op,triggervalue,triggercode
+ set op="" for { 
+   set op=$order(triggers("allcpu","user",op)) quit:op=""
+   if op=">" {
+     set limit="" for { 
+        set limit=$order(triggers("allcpu","user",op,limit)) quit:limit=""
+        set id="" for {
+          set id=$order(triggers("allcpu","user",op,limit,id),1,triggercode) quit:id=""
+          if op=">" {
+            if $G(mAllCpuUser,0)>limit { set triggervalue=1 }
+            else { set triggervalue=0 }
+          }
+          if triggervalue'=$G(triggervalold("allcpu","user",op,limit,id)) { 
+            try { x triggercode } catch e {
+              if $classname(e)="%Exception.SystemException" { set ze=e.AsSystemError() }
+            }
+          }
+          set triggervalold("allcpu","user",op,limit,id)=triggervalue
+        }
+     }
+   }
+ }
+ quit
+addTrigger(stattype="allcpu",statname="user",op=">",limit,triggercode) [doTriggers,triggers] public {
+ try {
+   for i=1:1 {
+     if '$D(triggers(stattype,statname,op,limit,i)) quit
+   }
+   set triggers(stattype,statname,op,limit,i)=triggercode
+   set doTriggers=1
+   quit
+ } catch e {
+ }
+}
+delTrigger(stattype="allcpu",statname="user",op=">",limit,triggercode) [doTriggers,triggers] public {
+ if stattype="" { kill triggers }
+ elseif statname="" { kill triggers(statype) }
+ elseif op="" { kill triggers(statype,statname) }
+ elseif limit="" { kill triggers(statype,statname,op) } 
+ elseif triggercode="" { kill triggers(statype,statname,op,limit) }
+ else {
+   set i="" for {
+     set i=$order(triggers(statype,statname,op,limit,i),1,t) quit:i=""
+     if t=triggercode kill triggers(statype,statname,op,limit,i)
+   }
+ }
+ if $order(triggers(""))="" set doTriggers=0
+ quit
+}
+ #; run typeperf to get performance in english
+testrunen(delay=1,count=3600,log,config)
+ set cmddev="|CPIPE|cmd"
+ #;set configfile=$SYSTEM.Util.ManagerDirectory()_"typeperf.default.config"
+ set configfile=$SYSTEM.Util.ManagerDirectory()_"perf.test.config"
+ set cmd="""echo | chcp 437 | typeperf.exe -si "_delay_" -sc "_count_" ""\Processor(_Total)\% User Time"" ""\Processor(_Total)\% Privileged Time"""
+ #;set cmd="""echo | chcp 437 | typeperf.exe -si "_delay_" -sc "_count_" -cf " _configfile_""""
+ W cmd,!
+ set oldeof=$SYSTEM.Process.SetZEOF(1)
+ open cmddev:(cmd:"QR"):1
+ if $test=0 { W "run command failure",! quit 0 }
+ use cmddev for { use cmddev read x quit:$zeof=-1  use 0 W x,! }
+ close cmddev if oldeof=0 { do $SYSTEM.Process.SetZEOF(0) }
+ quit 1
+ #; run typeperf to get instances in english
+testinsten
+ set cmddev="|CPIPE|cmd"
+ set cmd="""echo | chcp 437 | typeperf.exe -qx ""\Processor\*"""
+ set oldeof=$SYSTEM.Process.SetZEOF(1)
+ open cmddev:(cmd:"QR"):1 
+ if $test=0 { W "run command failure",! quit 0 }
+ use cmddev for { use cmddev read x quit:$zeof=-1  use 0 W x,! }
+ close cmddev if oldeof=0 { do $SYSTEM.Process.SetZEOF(0) }
+ quit 
+testqen
+ kill text do shellexec^stat.lib("""echo | chcp 437 | typeperf.exe -q""",.text,"CP866")
+ quit
+testgenconfig
+ set configfile=$SYSTEM.Util.ManagerDirectory()_"msperf.test.config"
+ do genPerfConfigDefault(configfile)
+ quit
+

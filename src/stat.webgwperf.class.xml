@@ -1,0 +1,380 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Export generator="Cache" version="25">
+<Class name="stat.webgwperf">
+<Description>
+web grateway perfromance metrics</Description>
+<StorageStrategy>main</StorageStrategy>
+<Super>%Persistent</Super>
+<TimeCreated>65587,47286.82198</TimeCreated>
+
+<Property name="mts">
+<Description>
+messasge time stamp</Description>
+<Type>%TimeStamp</Type>
+</Property>
+
+<Property name="method">
+<Type>%String</Type>
+</Property>
+
+<Property name="LocalUrl">
+<Type>%String</Type>
+</Property>
+
+<Property name="WebCliIP">
+<Type>%String</Type>
+</Property>
+
+<Property name="ReqCLen">
+<Description>
+http request Content length;</Description>
+<Type>%Integer</Type>
+</Property>
+
+<Property name="RspCLen">
+<Description>
+http response length</Description>
+<Type>%Integer</Type>
+</Property>
+
+<Property name="CSPSID">
+<Type>%String</Type>
+</Property>
+
+<Property name="tStart">
+<Type>%String</Type>
+</Property>
+
+<Property name="tEnd">
+<Type>%String</Type>
+</Property>
+
+<Property name="tTotal">
+<Type>%Float</Type>
+</Property>
+
+<Property name="tPre">
+<Description><![CDATA[
+webgw field name <b>Pre-processing of request</b><br/>]]></Description>
+<Type>%Float</Type>
+</Property>
+
+<Property name="tFormat">
+<Type>%Float</Type>
+</Property>
+
+<Property name="tGetCon">
+<Type>%Float</Type>
+</Property>
+
+<Property name="tNewCon">
+<Type>%Float</Type>
+</Property>
+
+<Property name="tSendSrv">
+<Type>%Float</Type>
+</Property>
+
+<Property name="tSrv">
+<Type>%Float</Type>
+</Property>
+
+<Property name="tRecvSrv">
+<Type>%Float</Type>
+</Property>
+
+<Property name="tRecvSrvFoot">
+<Description>
+Receive footers from Cache</Description>
+<Type>%Float</Type>
+</Property>
+
+<Property name="tPostFoot">
+<Description>
+Post-processing of footers</Description>
+<Type>%Float</Type>
+</Property>
+
+<Property name="tRelCon">
+<Description>
+Release connection to Cache</Description>
+<Type>%Float</Type>
+</Property>
+
+<Property name="tClean">
+<Description>
+Cleanup</Description>
+<Type>%Float</Type>
+</Property>
+
+<Method name="BuildRecDList">
+<ClassMethod>1</ClassMethod>
+<FormalSpec>a</FormalSpec>
+<Implementation><![CDATA[
+ quit $LB("",/*classnaem*/
+   a("Time"),/*ts,1*/
+   a("Method")/*method,2*/,
+   a("LocalURL")/*url,3*/,
+   a("Remote-Addr")/*cliip,*/,
+   a("Session-ID")/*sid"*/,
+   a("Content Length of Request")/*ReqCLen,5*/,
+   a("Response")/*RspLen,6*/,
+   a("Time in")/*Start*/,
+   a("Time out")/*tEnd*/,
+   a("Total time to service request")/*tTotal*/,
+   a("Pre-processing of request")/*"tPre*/,
+   a("Format request")/*tFormatReq*/,
+   $G(a("Obtain  connection to Cache"))/*tGetCon*/,
+   $G(a("Obtain NEW connection to Cache"))/*tNewCon*/,
+   a("Send request to Cache")/*tSendSrv*/,
+   a("Processing request in Cache")/*tSrv*/,
+   a("Receive response from Cache")/*RecvSrv*/,
+   a("Post-processing of response(a)")/*tPosta*/,
+   a("Post-processing of response(b)")/*tPostb*/,
+   a("Post-processing of response(c)")/*tPostc*/,
+   a("Receive footers from Cache")/*RecvSrvFoot*/,
+   a("Post-processing of footers")/*PostFoot*/,
+   a("Release connection to Cache")/*RelCon*/,
+   a("Cleanup")/*Clean*/
+ )
+]]></Implementation>
+</Method>
+
+<Method name="DataSetInstance">
+<ClassMethod>1</ClassMethod>
+<Implementation><![CDATA[ q 1
+]]></Implementation>
+</Method>
+
+<Storage name="main">
+<Type>%Library.CacheStorage</Type>
+<DataLocation>^|"SYSSTAT"|stat.webgwperf.d</DataLocation>
+<DefaultData>main</DefaultData>
+<IdLocation>^|"SYSSTAT"|stat.webgwperf.id</IdLocation>
+<IndexLocation>^|"SYSSTAT"|stat.webgwperf.i</IndexLocation>
+<StreamLocation>^|"SYSSTAT"|stat.webgwperfS</StreamLocation>
+<Data name="main">
+<Value name="1">
+<Value>%%CLASSNAME</Value>
+</Value>
+<Value name="2">
+<Value>mts</Value>
+</Value>
+<Value name="3">
+<Value>method</Value>
+</Value>
+<Value name="4">
+<Value>LocalUrl</Value>
+</Value>
+<Value name="5">
+<Value>WebCliIP</Value>
+</Value>
+<Value name="6">
+<Value>CSPSID</Value>
+</Value>
+<Value name="7">
+<Value>ReqCLen</Value>
+</Value>
+<Value name="8">
+<Value>RspCLen</Value>
+</Value>
+<Value name="9">
+<Value>tStart</Value>
+</Value>
+<Value name="10">
+<Value>tEnd</Value>
+</Value>
+<Value name="11">
+<Value>tTotal</Value>
+</Value>
+<Value name="12">
+<Value>tPre</Value>
+</Value>
+<Value name="13">
+<Value>tFormat</Value>
+</Value>
+<Value name="14">
+<Value>tGetCon</Value>
+</Value>
+<Value name="15">
+<Value>tNewCon</Value>
+</Value>
+<Value name="16">
+<Value>tSendSrv</Value>
+</Value>
+<Value name="17">
+<Value>tSrv</Value>
+</Value>
+<Value name="18">
+<Value>tRecvSrv</Value>
+</Value>
+<Value name="19">
+<Value>tRecvSrvFoot</Value>
+</Value>
+<Value name="20">
+<Value>tPostFoot</Value>
+</Value>
+<Value name="21">
+<Value>tRelCon</Value>
+</Value>
+<Value name="22">
+<Value>tClean</Value>
+</Value>
+</Data>
+</Storage>
+
+<Storage name="custom">
+<Type>%Library.CacheStorage</Type>
+<DataLocation>^|"SYSSTAT"|stat.webgwperf.d(##class(stat.webgwset).DataSetInstance())</DataLocation>
+<DefaultData>custom</DefaultData>
+<IdLocation>@##class(stat.webgwset).DataSetInstanceAutoInc()</IdLocation>
+<IndexLocation>^|"SYSSTAT"|stat.webgwperf.i</IndexLocation>
+<StreamLocation>^|"SYSSTAT"|stat.webgwperf.s</StreamLocation>
+<Data name="custom">
+<Value name="1">
+<Value>%%CLASSNAME</Value>
+</Value>
+<Value name="2">
+<Value>mts</Value>
+</Value>
+<Value name="3">
+<Value>method</Value>
+</Value>
+<Value name="4">
+<Value>LocalUrl</Value>
+</Value>
+<Value name="5">
+<Value>WebCliIP</Value>
+</Value>
+<Value name="6">
+<Value>CSPSID</Value>
+</Value>
+<Value name="7">
+<Value>ReqCLen</Value>
+</Value>
+<Value name="8">
+<Value>RspCLen</Value>
+</Value>
+<Value name="9">
+<Value>tStart</Value>
+</Value>
+<Value name="10">
+<Value>tEnd</Value>
+</Value>
+<Value name="11">
+<Value>tTotal</Value>
+</Value>
+<Value name="12">
+<Value>tPre</Value>
+</Value>
+<Value name="13">
+<Value>tFormat</Value>
+</Value>
+<Value name="14">
+<Value>tGetCon</Value>
+</Value>
+<Value name="15">
+<Value>tNewCon</Value>
+</Value>
+<Value name="16">
+<Value>tSendSrv</Value>
+</Value>
+<Value name="17">
+<Value>tSrv</Value>
+</Value>
+<Value name="18">
+<Value>tRecvSrv</Value>
+</Value>
+<Value name="19">
+<Value>tRecvSrvFoot</Value>
+</Value>
+<Value name="20">
+<Value>tPostFoot</Value>
+</Value>
+<Value name="21">
+<Value>tRelCon</Value>
+</Value>
+<Value name="22">
+<Value>tClean</Value>
+</Value>
+</Data>
+</Storage>
+
+<Storage name="Default">
+<Type>%Library.CacheStorage</Type>
+<DataLocation>^stat.webgwperfD</DataLocation>
+<DefaultData>webgwperfDefaultData</DefaultData>
+<IdLocation>^stat.webgwperfD</IdLocation>
+<IndexLocation>^stat.webgwperfI</IndexLocation>
+<StreamLocation>^stat.webgwperfS</StreamLocation>
+<Data name="webgwperfDefaultData">
+<Value name="1">
+<Value>%%CLASSNAME</Value>
+</Value>
+<Value name="2">
+<Value>mts</Value>
+</Value>
+<Value name="3">
+<Value>method</Value>
+</Value>
+<Value name="4">
+<Value>LocalUrl</Value>
+</Value>
+<Value name="5">
+<Value>WebCliIP</Value>
+</Value>
+<Value name="6">
+<Value>ReqCLen</Value>
+</Value>
+<Value name="7">
+<Value>RspCLen</Value>
+</Value>
+<Value name="8">
+<Value>CSPSID</Value>
+</Value>
+<Value name="9">
+<Value>tStart</Value>
+</Value>
+<Value name="10">
+<Value>tEnd</Value>
+</Value>
+<Value name="11">
+<Value>tTotal</Value>
+</Value>
+<Value name="12">
+<Value>tPre</Value>
+</Value>
+<Value name="13">
+<Value>tFormat</Value>
+</Value>
+<Value name="14">
+<Value>tGetCon</Value>
+</Value>
+<Value name="15">
+<Value>tNewCon</Value>
+</Value>
+<Value name="16">
+<Value>tSendSrv</Value>
+</Value>
+<Value name="17">
+<Value>tSrv</Value>
+</Value>
+<Value name="18">
+<Value>tRecvSrv</Value>
+</Value>
+<Value name="19">
+<Value>tRecvSrvFoot</Value>
+</Value>
+<Value name="20">
+<Value>tPostFoot</Value>
+</Value>
+<Value name="21">
+<Value>tRelCon</Value>
+</Value>
+<Value name="22">
+<Value>tClean</Value>
+</Value>
+</Data>
+</Storage>
+</Class>
+</Export>

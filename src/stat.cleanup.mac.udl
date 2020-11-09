@@ -1,0 +1,66 @@
+ROUTINE stat.cleanup
+
+DeleteOldPackedLogs(hdate,packtype,&DeletedFiles,impl="COS") public {
+ set DaysKeepLog=$G(^SYS("stat","DaysKeepLogs"),3)
+ if DaysKeepLog="" quit 
+ set KeepStarthDate=hdate-$G(^SYS("stat","DaysKeepLogs"),3)+1
+ if packtype="zip" { set ext=".zip"}
+ 
+ if impl="COS" {
+   set rs=##class(%ResultSet).%New("%File:FileSet")
+   set ret=rs.Execute(".","logs*")
+   while rs.Next() {
+     set packedlog=rs.Get("Name")
+     set packedlognox=$E(packedlog,1,$L(packedlog)-$L(ext))
+     set ext2=$E(packedlog,$L(packedlog)-$L(ext)+1,$L(packedlog))
+     #; wrong extention
+     if ext'=ext2 continue
+     set LNAdate=$E(packedlognox,$L(packedlognox)-9,$L(packedlognox))
+     try {  set h=$$dateLNAtoH^stat.lib(LNAdate) }
+     #; wrong LNA for date
+     catch e { continue }
+     if h<KeepStarthDate {
+        set ret=##class(%File).Delete(packedlog)
+        set deletedfile(packedlog)=""
+     }
+   }
+   quit
+ }
+ 
+ if $$unix^stat.lib() {
+   if packtype="zip" {
+     set ext=".zip"
+     set cmd="ls -1 logs*"_ext_" 2>&1"
+   }
+ }
+ else {
+   set cmd=""
+ }
+  #;B ;loop delete old packet logs
+ if cmd'="" {
+    set dev="|CPIPE|"
+    open dev:(cmd:"Q")
+    use dev  
+    set i=0 for {
+      read packedlog quit:$zeof=-1
+      set i=i+1
+      set lslog(i)=packedlog
+      #; wrong prefix
+      if $E(packedlog,1,5)'="logs_" continue
+      set packedlognox=$E(packedlog,1,$L(packedlog)-$L(ext))
+      set ext2=$E(packedlog,$L(packedlog)-$L(ext)+1,$L(packedlog))
+      #; wrong extention
+      if ext'=ext2 continue
+      set LNAdate=$E(packedlognox,$L(packedlognox)-9,$L(packedlognox))
+      try { set h=$$dateLNAtoH^stat.lib(LNAdate) }
+      #; wrong LNA for date
+      catch e { continue }
+      if h<KeepStarthDate { 
+        set ret=##class(%File).Delete(packedlog)
+        set deletedfile(packedlog)=""
+      }
+    }
+    use 0 close dev
+ }
+ #; B ;end
+}

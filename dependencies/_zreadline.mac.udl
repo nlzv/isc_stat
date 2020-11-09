@@ -1,0 +1,121 @@
+ROUTINE %zreadline
+
+ #; answer might have initial value and offset - cursor position zero based
+ #; insert might be preserved between call
+ #; mode "FS" walk on file system 
+ #; 
+get(prompt,&answer,&offset="",&insert=1,mode="FS")
+ set answer=$G(answer)
+ if $G(offset)="" set offset=$L(answer)
+#; fix incorrect offset
+ if $G(offset)>$L(answer) set offset=$L(answer)
+ set fsdlm=$case($zversion(1),2:"\",3:"/",:"")
+ W prompt_answer
+#; move cursor to offset position left
+ if $L(answer)-offset>0 W /CUB($L(answer)-offset)
+ for {
+   read *c
+   if c=13 quit
+   if c=27 {
+     #; delete
+     if $key=$C(27,91,51,126) {
+       set newanswer=$E(answer,1,offset)_$E(answer,offset+2,$L(answer))
+       W $E(newanswer,offset+1,$L(newanswer))_" " set cl=$L(answer)-offset if cl W /CUB(cl)
+       set answer=newanswer continue 
+     }
+     #; insert
+     elseif $key=$C(27,91,50,126) { set insert=1-insert continue }
+     #; up 
+     elseif $key=$C(27,91,65) {}
+     #; down
+     elseif $key=$C(27,91,66) {}
+     #; left
+     elseif $key=$C(27,91,68) { if offset>0 { set offset=offset-1 W /CUB(1)} continue }
+     #; right
+     elseif $key=$C(27,91,67) { if offset<$L(answer) { set offset=offset+1 W /CUF(1) } continue }
+     #; page up
+     #; page dn
+     #; home
+     #; end
+     #; ctrl-a
+     #; ctrl-e
+     else {
+       set answer=$E(answer,1,offset+1)_$C(c)_$E(answer,offset+1,$L(answer))
+     }
+   }
+   elseif $L($key)=1 {
+     #; ctrl-a
+     if $key=$C(1) { W /CUB(offset) set offset=0 continue }
+     #; ctrl-e 
+     #; tab
+     elseif $key=$C(5) { set newoffset=$L(answer) if offset'=newoffset { W /CUF(newoffset-offset) set offset=newoffset } continue }
+     #; tab search
+     elseif $key=$C(9) {
+       if mode="FS" {
+          do getfs(answer,.result)
+          if $$rs1(.result,.select)=1 {
+            if $zu(12,select,2)'="" set select=select_fsdlm
+            #; tab is echoed
+            W /CUB(1),$E(select,$L(answer)+1,$L(select)) set offset=$L(select)
+            set answer=select continue
+          }
+          else {
+            W !
+            set t="" for { 
+              set t=$order(result(t)) quit:t=""
+              set t1=t
+              if $zu(12,t,2)'="" { set t1=t_fsdlm set type="d" }
+              else { set type="f" }
+              set ndir=$L(t1,fsdlm)
+              if type="d" { set t1=$P(t1,fsdlm,ndir-1,ndir) }
+              else { set t1=$P(t1,fsdlm,ndir) }
+              W " "_t1
+            }
+            if $L(answer)<$L(select) set answer=select set offset=$L(answer)
+            W !,prompt,answer set cl=$L(answer)-offset if cl>0 W /CUB(cl)
+            continue
+          }
+       }
+     }
+     #; backspace
+     elseif $key=$C(127) { 
+       if offset=0 continue
+       set offset=offset-1 W /CUB(1)
+       set newanswer=$E(answer,1,offset)_$E(answer,offset+2,$L(answer))
+       W $E(newanswer,offset+1,$L(newanswer))_" " set cl=$L(answer)-offset if cl W /CUB(cl)
+       set answer=newanswer continue
+     }
+     if insert=1 {
+       set newanswer=$E(answer,1,offset)_$C(c)_$E(answer,offset+1,$L(answer))
+       set t=$E(answer,offset+1,$L(answer)) if t'="" W t W /CUB($L(t))
+       set answer=newanswer set offset=offset+1
+       continue
+     }
+     else { set $E(answer,offset+1)=$C(c) set offset=offset+1 } continue
+   }
+ }
+getfs(path,&result) public {
+ kill result set t=$zsearch(path_"*")
+ while t'="" {
+  set result(t)=""
+  set t=$zsearch("")
+ }
+}
+rs1(&result,&select) public {
+ set select="" set x1=$order(result("")) if x1="" quit 0
+ set x2=$order(result(x1)) if x2="" { set select=x1 quit 1 }
+#; find maximum common
+ set x="" set common="" for {
+   set x=$order(result(x)) quit:x=""
+   if common="" set common=x
+   do match(common,x,.match)
+   set common=$E(x,1,match)
+ }
+ set select=common
+ quit 0
+}
+match(x1,x2,&match) public {
+ set L=$L(x1) if L>$L(x2) { set L=$L(x2) } set match=L for i=1:1:L { if $E(x1,i)'=$E(x2,i) { set match=i-1 quit } }
+}
+readkey
+ quit

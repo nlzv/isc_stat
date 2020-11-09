@@ -1,0 +1,384 @@
+ROUTINE stat.webgwlog
+ #include %occErrors
+ #include stat
+#; pack webgw log (aka CSP.log)
+#; ^SYS("stat","webgateway","addlogtopack")
+#; we might collect from several place
+#; ^SYS("stat","webgateway","path"[,id]) [ssh:user@password:]/path
+ #define DEBUG 0
+ #if $$$DEBUG=1
+ #define DEBUGCODE(%1) %1
+ #else
+ #define DEBUGCODE(%1)
+ #endif
+#define MonthName3ToNum(%1) $case(%1,"Jan":"01","Feb":"02","Mar":"03","Apr":"04","May":"05","Jun":"06","Jul":"07","Aug":"08","Sep":"09","Oct":"10","Nov":11,"Dec":12,:"00")
+#; rename CSP.log CSP.log.old
+ 
+ #; extract from csplog file events in given time area and put them into new csp log file
+ #; time format YYYYMMDD[hh[mm[ss]]]
+ #; csplogfile1 source
+ #; csplogfile2 target
+extractontime(csplogfile1,csplogfile2,t1,t2) public {
+ do $zu(68,40,1)
+ set copy=0,status=1
+ if $D(t2)=0 s t2=t1
+ open csplogfile1:("RS"):0 if $test=0 set status=$$Error^%apiOBJ($$$GeneralError,"can not open file "_csplogfile1) goto exit1
+ open csplogfile2:("NWS"):0 if $test=0 set status=$$Error^%apiOBJ($$$GeneralError,"can not open file "_csplogfile2) goto exit2
+ for {
+   use csplogfile1 read x set zeof=$zeof
+   if $E(x,1,3)=">>>" {
+     set t=$P($E(x,15,$L(x)),";",1)
+     set tM=$E(t,1,3),td=$E(t,5,6),tt=$E(t,8,15),ty=$E(t,17,20)
+     set tth=$E(tt,1,2),ttm=$E(tt,4,5),tts=$E(tt,7,8)
+     set td=$tr(td," ","0")
+     set tm=$case(tM,"Jan":"01","Feb":"02","Mar":"03","Apr":"04","May":"05","Jun":"06","Jul":"07","Aug":"08","Sep":"09","Oct":"10","Nov":"11","Dec":"12",:"??")
+     set tx=ty_tm_td_tth_ttm_tts
+     if $E(tx,1,$L(t1))=t1 { set copy=1 }
+     elseif $E(tx,1,$L(t1))]t1&(t2>$E(tx,1,$L(t2))!($E(tx,1,$L(t2))=t2)) { set copy=1 }
+     else { set copy=0 }
+   }
+   if copy=1 use csplogfile2 W x,!
+   if zeof=-1 quit
+ }
+ use 0
+ close csplogfile2
+exit2
+ close csplogfile1
+exit1
+ quit status
+}
+#; extract webgwlog to webgwloge ts in given range
+#; before range go to webgwlogb, after range gptp webgwloga if file name is not empty
+extracttime3(webgwlog,webgwloge,webgwlogb,webgwloga,t1,t2) public {
+ set oldoef=$SYSTEM.Process.SetZEOF(1)
+ open webgwlog:("RS"):1
+ open webgwloge:("NSW"):1
+ open webgwlogb:("NSW"):1
+ open webgwloga:("NSW"):1
+ for {
+   use csplogfile1 read x set zeof=$zeof
+   if $E(x,1,3)=">>>" {
+    set t=$P($E(x,15,$L(x)),";",1)
+    set tM=$E(t,1,3),td=$E(t,5,6),tt=$E(t,8,15),ty=$E(t,17,20)
+    set tth=$E(tt,1,2),ttm=$E(tt,4,5),tts=$E(tt,7,8)
+    set td=$tr(td," ","0")
+    set tm=$$$MonthName3ToNum(tM)
+    set tx=ty_tm_td_tth_ttm_tts
+    if $E(tx,1,$L(t1))=t1 { set copy=1 }
+    elseif $E(tx,1,$L(t1))]t1&(t2>$E(tx,1,$L(t2))!($E(tx,1,$L(t2))=t2)) { set copy=1 }
+    elseif $E(tx,1,$L(t1))<t1 { set copy=2 }
+    elseif $E(tx,1,$L(t2))>t2 { set copy=3 }
+   }
+   if copy=1  && (webgwlog'="") { use webgwloge W x,! }
+   elseif copy=2 && (webgwlogb'="") { use webgwloge W x,! }
+   elseif copy=3 && (webgwloga'="") { use webgwloga W x,! }
+ }
+ if oldeof=0 { do $SYSTEM.Process.SetZEOF(0) }
+ use 0
+ if webgwloge'="" { close webgwloge }
+ if webgwlogb'="" { close webgwlogb }
+ if webgwloga'="" { close webgwloga }
+ quit
+}
+ #; for every webgw makes period extact from CSP.log
+ #; CSP.log switch to new empty file, because it is renamed to CSP.log.tmp which after processing will be removed
+packall(d8date,dlogpat,&webgwn,&webgwlist) public {
+ set webgwn=0 set webgwlist="" set waitsignal=0
+ set CtlGlo=$$CtlGlo^stat.lib set fsdlm=$$fsdlm^stat.lib
+ set webgwid="" for {
+   set webgwid=$order(@CtlGlo@("webgw","d",webgwid),1,webgwrec) quit:webgwid=""
+   if +$LG(webgwrec,3)=0 continue
+   if waitsignal=0 {
+     set ret=$SYSTEM.Event.Create($$waitsignal)
+     set ret=$SYSTEM.Event.Create($$waitmonsignal)
+     set waitsignal=1
+   }
+   job pack(d8date,dlogpat,$LG(webgwrec,1),$LG(webgwrec,2))
+   set childpid=$zchild
+   set webgwn=webgwn+1
+   set webgwlist=webgwlist_$LB($LB(childpid,$LG(webgwrec,1),$LG(webgwrec,2)))
+ }
+ if webgwn>0 {
+   job wait(webgwlist)
+ }
+ quit
+}
+#; generate file for pack for one webgw
+pack(d8date,dlogpat,webgwname,webgwdir) public {
+ set $ztrap="error"
+ set platformtype=$$platformtype^stat.lib() set fsdlm=$$fsdlm^stat.lib
+ if platformtype="unix" { try { do sumask^stat.lib("rw-rw-r--") } catch {} }
+ set signal=$$waitsignal
+ set statlog="stat.log" set logdir=$$logdir^stat.lib set NL=$$NL^stat.lib
+ if $E(webgwdir,1,4)="ssh:" {
+ }
+#; here is involved ini and log file access right
+ else {
+#; first rename CSP.log to CSP.log.tmp cspgw will create new file CSP.log
+#; CSP.log.tmp -> stat_webgw_date.log, CSP.log.b, CSP.log.a
+#; copy CSP.log
+   set webgwlog=webgwdir_fsdlm_"CSP.log"
+   set webgwloge=logdir_fsdlm_"stat_webgw_"_webgwname_"_"_dlogpat_".log"
+   set webgwlogtmp=webgwdir_fsdlm_"CSP.log.tmp"
+#;  set webgwlogb=webgwdir_"\CSP.log.tmp.old"
+#;  set webgwlogb=webgwdir_"\CSP.log.tmp.new"
+#if 1
+   set ret=##class(%File).Rename(webgwlog,webgwlogtmp)
+#else
+   set ret=1
+#endif
+   if +ret=1 {
+     try {
+#;     do extracttime3(webgwlog,webgwloge,"","",d8date) set status=1
+#; if 1st record satisfies condition then we might just copy file
+       set rete=$$extractontime(webgwlogtmp,webgwloge,d8date)
+       if +rete=1 {
+         set msg="extract message from CSP.log for "_d8date_", "_webgwloge
+         do statlog^stat.lib("webgwlog",.msg)
+         set ret=##class(%File).Delete(webgwloge)
+       }
+       else { }
+     } catch e { set status=0 }
+   }
+   else {
+     set error=ret set status=0
+     kill msg set msg="webgwlog error rename "
+     set msg(1)="from "_webgwdir_fsdlm_"CSP.log" set msg(2)="to "_webgwlog
+     do $SYSTEM.Status.Decompose(ret,.errtext) set msg(3)=$G(errtext(1))
+     do statlog^stat.lib("webgwlog",.msg)
+     $$$ConLog($ZNAME_" pack failure to rename file")
+   }
+   set ret=$SYSTEM.Event.Signal(signal,$LB($P($J,":",1),webgwname,webgwdir,status,$G(error)))
+ }
+ quit
+error
+ set $ztrap="" $$$ConLog($ZNAME_" $ZE="_$ZE) quit
+}
+#; wait to complete
+wait(webgwlist) public {
+ set $ztrap="error"
+ set statlog="stat.log" set logdir=$$logdir^stat.lib set NL=$$NL^stat.lib
+ set maxwait=$G(^SYS("stat","webgw","extractwaittime"),300)
+ set n=$LL(webgwlist) for i=1:1:n {
+   set x=$LG(webgwlist,i)
+   set $LB(pid,webgwname,webgwdir)=x
+   set webgwa(pid)=$LB(webgwname,webgwdir)
+ }
+ set zh=$zh
+ set wait=maxwait
+ set signal=$$waitsignal
+ for {
+   set retSignal=$SYSTEM.Event.WaitMsg(signal,wait)
+   set ret=$LG(retSignal,1)
+   if ret=1 {
+     set msg=$LG(retSignal,2)
+     set $LB(pid,webgwname,webgwdir,status,error)=msg
+     $$$ConLog($ZNAME_" wait got signal from pid="_pid)
+     set webgwsa(pid)=$LB(webgwname,webgwdir,status,error)
+     kill webgwa(pid)
+   }
+   elseif ret=0 {}
+   set dt=$zh-zh set zh=$zh
+   set wait=wait-dt if wait<0 { set wait=0 }
+   if wait=0 quit
+   if $order(webgwa(""))="" quit
+ }
+#; report in stat.log missed job
+ if $D(webgwa) {
+   set msg="not completed CSP.log extract"
+   set iline=0 set pid="" for {
+     set pid=$order(webgwa(pid),1,webgwrec) quit:pid=""
+     set msg($I(iline))="webgw config name="_$LG(webgwrec,1)_" dir="_$LG(webgwrec,2)
+   }
+   do statlog^stat.lib($ZNAME,.msg)
+ }
+ set ret=$SYSTEM.Event.Delete($$waitsignal)
+ set monsignal=$$waitmonsignal
+ set ret=$SYSTEM.Event.Signal(monsignal,"")
+ quit
+error
+ set $ztrap="" $$$ConLog($ZNAME_" $ZE="_$ZE) quit
+}
+#; monwait is called from monitor to get notification from internal wait
+monwait(waittime) public {
+ set monsignal=$$waitmonsignal
+ set retSignal=$SYSTEM.Event.WaitMsg(monsignal,waittime)
+ set ret=$SYSTEM.Event.Delete(monsignal)
+ quit ret
+}
+waitsignal() public { quit "^"_$ZNAME_".wait"}
+waitmonsignal() public { quit "^"_$ZNAME_".waitmon" }
+#; extract performance into CSV file from webgw log
+#; ShortNamesList field sequence in CSV
+#;   "" default,
+#;   not default is not implemented
+#; return $LB(1=ok|0=error,text description[,details])
+perfCSV(log,report="",dlm=",",ShortNamesList="",dbload=0) public {
+ if $G(%debug,0)'=1 set $ztrap="error"
+ try{close log}catch{} open log:("RS"):0.1 if '$test { quit $LB(0,"open file log") }
+ if report'="" { try{close report}catch{} open report:("NWS"):0.5 if '$test { close log quit $LB(0,"create csv report file ") } }
+ set eofold=$SYSTEM.Process.SetZEOF(1) use log
+ set ret=$LB(1) set io=$io set type=0 set line=0 /*current line number just has been read*/
+ if $L(report)'=0 { use report
+   if ShortNamesList="" { W $LTS($$defaultShortNamesList,","),! }
+   else {
+     W ShortNamesList,!
+     do BuildShortNamesMap(.ShortNamesList,.map)
+     #;B  ; mapped output
+   } use log
+ }
+ for {
+   read tx if $zeof=-1 { quit } set line=line+1
+   if $E(tx,1,3)=">>>" { set prefix=$E(tx,5,*)} else { if type=0 { continue} }
+   read txTitle if $zeof=-1 { quit } set line=line+1
+   if $E(txTitle,1,4)'="    " B  set ret=$LB(0,"bad title format",$G(line)) quit
+   set txTitle=$E(txTitle,5,*)
+   if $P(txTitle," ",1,2)="Performance Statistics" { set type=1 } else { set type=0 continue}
+   if type=1 {
+     set txLimit=$E(txTitle,$F(txTitle,"("),$L(txTitle)-1)
+     set txLimit=$E(txLimit,$F("txLimit",">")) set txLimit=$zstrip(txLimit,"<"," ","") set txLimit=+txLimit
+     read txMsg if $zeof=-1 { quit } set line=line+1
+     if $E(txMsg,1,4)'="    " set ret=$LB(0,"bad message format",$G(line)) quit
+     set prefix=$LFS(prefix,";")
+     set txMsg=$E(txMsg,5,*)
+#; break txMsg into tPerf1 (tPerf2)
+     set o=$F(txMsg,"(") set txPerf1=$E(txMsg,1,o) set txPerf2=$E(txMsg,o,*) set o=$F(txPerf2,":") set txPerf2=$E(txPerf2,o,*)
+     set txPerf1=$LFS(txPerf1,";") set txPerf2=$LFS(txPerf2,";")
+     kill a
+     set i=0 while $listnext(prefix,i,nvp) {
+       set n=$P(nvp,":",1) set n=$zstrip(n,"<>"," ","")
+#; transform time stamp of message format
+       if n="Time" {
+         set v=$E(nvp,$L(n)+2,*) set v=$zstrip(v,"<=>"," ","")
+         set v2=$P(v," ",2) set v3=$P(v," ",3) set v4=$P(v," ",4) set v5=$P(v," ",5)
+         set v=v5_"-"_$$$MonthName3ToNum(v2)_"-"_v3_" "_v4
+       }
+       else { set v=$P(nvp,":",2) }
+       set v=$zstrip(v,"<>"," ","") set a(n)=v
+     }
+#; breaks Page into method and local url part
+     set v=$G(a("Page")) set m=$P(v," ",1) set u=$E(v,$L(m)+2,*) set a("Method")=m set a("LocalURL")=u
+     set i=0 while $listnext(txPerf1,i,nvp) {
+       set n=$P(nvp,"=",1) set v=$P(nvp,"=",2) set n=$zstrip(n,"<>"," ","") set v=$zstrip(v,"<>"," ","")
+       if $E(n,1,4)'="Time" { set v=+v } set a(n)=v
+     }
+     set i=0 while $listnext(txPerf2,i,nvp) {
+       set n=$P(nvp,"=",1) set v=$P(nvp,"=",2) set n=$zstrip(n,"<>"," ","") set v=$zstrip(v,"<>"," ","") set a(n)=+v
+     }
+     #;B  ; record built
+     if $L(report)>0 use report do wlogperfrec(.a,dlm,.ShortNamesList,.Map) use log
+     if dbload do dbsaveperfrec(.a)
+     set type=0
+   }
+ }
+ use io if $L(report)'=0 { close report } close log
+ quit ret
+error
+ set $ztrap="" if $L(report)'=0 { try{close report}catch{} } try{close report}catch{}
+ quit $LB(0,"$ZE",$ZE)
+}
+ #; ColList - list of columns put in report, empty use default
+ #; Map(shortname,webgwname)
+wlogperfrec(&a,dlm=",",ColList="",&Map) public {
+ if ColList="" {
+    W a("Time")_/*ts,1*/dlm_$P(a("Method")," ",1)/*method,2*/_dlm_a("LocalURL")/*url,3*/_dlm_a("Remote-Addr")/*cliip,*/_dlm_a("Session-ID")/*sid"*/_dlm
+    _a("Content Length of Request")/*ReqCLen,5*/_dlm_a("Response")/*RspLen,6*/_dlm
+    _a("Time in")/*Start*/_dlm_a("Time out")/*tEnd*/_dlm
+    _a("Total time to service request")/*tTotal*/_dlm
+    _a("Pre-processing of request")/*"tPre*/_dlm
+    _a("Format request")/*tFormatReq*/_dlm
+    _$G(a("Obtain NEW connection to Cache"))/*tNewCon*/_dlm
+    _$G(a("Obtain  connection to Cache"))/*tGetCon*/_dlm
+    _a("Send request to Cache")/*tSendSrv*/_dlm
+    _a("Processing request in Cache")/*tSrv*/_dlm
+    _a("Receive response from Cache")/*RecvSrv*/_dlm
+    _a("Post-processing of response(a)")/*tPosta*/_dlm
+    _a("Post-processing of response(b)")/*tPostb*/_dlm
+    _a("Post-processing of response(c)")/*tPostc*/_dlm
+    _a("Receive footers from Cache")/*RecvSrvFoot*/_dlm
+    _a("Post-processing of footers")/*PostFoot*/_dlm
+    _a("Release connection to Cache")/*RelCon*/_dlm
+    _a("Cleanup")/*Clean*/,!
+ }
+ else {
+ }
+ set v=a("Page")
+ set method=a("Page")
+}
+dbsaveperfrec(&a) public {
+ set drec=##class(stat.webgwperf).BuildRecDList(.a)
+ set id=$I(^|"SYSSTAT"|stat.webgwperf.id)
+ set ^|"SYSSTAT"|stat.webgwperf.d(id)=drec
+}
+BuildShortNamesMap(ShortNamesList,&map) {
+}
+#; $LB(webgwperflogfHdrName,ShortHdrName)
+perfmaphdrtable() public {
+ quit $LB(
+   $LB("Time","mts"),
+   $LB("RT Build","build"),
+   $LB("Log-Level","loglev"),
+   $LB("Gateway-PID","webgwpid"),
+   $LB("Gateway-TID,webgwtid"),
+   $LB("Connection-No","conid"),
+   $LB("Server","srv"),
+   $LB("Cache-PID","srvpid"),
+   $LB("Request-ID","reqid"),
+   $LB("Session-ID","sid"),
+   $LB("Remote-Addr","cliip"),
+   $LB("Page","page"),
+   $LB("Total time to service request","tTotal"),
+   $LB("Time in","tStart"),
+   $LB("Time out","tEnd"),
+   $LB("Content Length of Request","ReqCLen"),
+   $LB("Response","RspLen"),
+   $LB("Pre-processing of request","tPre"),
+   $LB("Obtain  connection to Cache","tGetCon"),
+   $LB("Obtain connection to Cache","tGetCon"), // make sense to ask fix webgw for this kind of logging
+   $LB("Obtain NEW connection to Cache","tNewCon"),
+   $LB("Format request","tFormatReq"),
+   $LB("Send request to Cache","tSendSrv"),
+   $LB("Processing request in Cache","tSrv"),
+   $LB("Receive response from Cache","tRecvSrv"),
+   $LB("Post-processing of response(a)","tPosta"),
+   $LB("Post-processing of response(b)","tPostb"),
+   $LB("Post-processing of response(c)","tPostc"),
+   $LB("Receive footers from Cache","tRecvSrvFoot"),
+   $LB("Post-processing of footers","tPostFoot"),
+   $LB("Release connection to Cache","tRelCon"),
+   $LB("Cleanup","tClean"),
+#; added during parsing
+   $LB("Method","meth"),
+   $LB("LocalURL","url")
+ )
+}
+#; it match code in wlogperfrec
+#; ShortNamesList="" default optimization for performance
+defaultShortNamesList() {
+ quit $LB(
+   "mts",
+   "meth",
+   "url",
+   "cliip",
+   "sid",
+   "ReqCLen",
+   "RspLen",
+   "tStart",
+   "tEnd",
+   "tTotal",
+   "tPre",
+   "tFormatReq",
+   "tNewCon",
+   "tGetCon",
+   "tSendSrv",
+   "tSrv",
+   "tRecvSrv",
+   "tPosta",
+   "tPostb",
+   "tPostc",
+   "tRecSrvFoot",
+   "tPostFoot",
+   "tRelCon",
+   "tRelClean"
+ )
+}

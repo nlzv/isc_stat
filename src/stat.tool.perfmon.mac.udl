@@ -1,0 +1,246 @@
+ROUTINE stat.tool.perfmon
+ #; select stat from ms perfmon cvs file
+ #define UNQUOT(%1) $zstrip(%1,"<>","""","")
+ #; based on stat type and instance approch
+reportOnTypeInst(log,report,&selectstattype,&selectstat,&selectstatinst)
+ do $SYSTEM.Process.SetZEOF(1)
+ close log open log:("RUK\RAW\"):1 if $test'=1 quit $LB(0,"error open log file")
+ set filesize=##class(%File).GetFileSize(log) set fileoffset=0 set logbuf=""
+ close report open report:("NWS":/IBUFSIZE=65536):1 if $test'=1 { close log quit $LB(0,"error create report file") }
+ use log do readline(.statnames,.eof) use 0
+ kill stattype kill stat kill statinst
+ do typeinst(statnames,.statn,.stattype,.stat,.statinst)
+ #;B  ; mk header begin
+ set header=$$typeinstheader(.selectstattype,.selectstat,.selectstatinst)
+ use report W "time"_header,!
+ #;B  ; mk map begin
+ do typeinstmap(.map,.stattype,.stat,.statinst,.selectstattype,.selectstat,.selectstatinst)
+ #;B  ; mk map end
+ for {
+   use log do readline(.stat,.eof) quit:eof=1
+   set t=$$$UNQUOT($P(stat,",",1))
+   set stattext=t
+   set i="" for { 
+     set i=$order(map(i),1,it) quit:i=""
+     if it'="" { set v=$$$UNQUOT($P(stat,",",it)) if v<1 {set v=v*10000+0.5\1/10000 } elseif v>1000 { set v=v+0.5\1 } } else { set v="" }
+     set stattext=stattext_","_v
+   }
+   use report W stattext,!
+ }
+ close stattext close log use 0
+ quit $LB(1)
+
+ #; select
+report(log,report,select)
+ do $SYSTEM.Process.SetZEOF(1)
+ #;close log open log:("RS"):1 if $test'=1 B
+ close log open log:("RUK\RAW\"):1 if $test'=1 B
+ set filesize=##class(%File).GetFileSize(log) set fileoffset=0 set logbuf=""
+ close report open report:("NWS":/IBUFSIZE=65536):1 if $test'=1 B
+ #;set select=$zstrip(select,"<=>"," ","")
+ use log
+#if 0
+ read statnames
+ read x set statnames=statnames_x
+ read x set statnames=statnames_x
+#else
+ do readline(.statnames,.eoflog)
+#endif
+ #;B ; statnames ready
+ use report w "time,"_select,!
+ do statidx(.statnames,.statidx)
+ do mapstat
+ #;B ; build statname index and select map
+ for {
+   use log
+#if 0
+   read stat if $zeof=-1 quit
+#else
+   do readline(.stat,.eoflog) if eoflog=1 quit
+#endif
+   set t=$$$UNQUOT($P(stat,",",1))
+   set stattext=t
+   for i=1:1:selectn {
+     set pdhi=$G(mapstat(i))
+     #;if i=6 B ;
+     if pdhi'="" { set v=$$$UNQUOT($P(stat,",",pdhi)) set v=v*10000\1/10000 }
+     else { set v="" }
+     set stattext=stattext_","_v
+   }
+   use report w stattext,!
+ }
+ close log
+ close report
+ quit
+#; log perfmon/typeperf
+getHdrFromLog(log,&statnames)
+ set filesize=##class(%File).GetFileSize(log) set fileoffset=0 set logbuf=""
+ close log open log:("RUK\RAW\"):1 if $test'=1 B  quit
+ use log
+ do readline(.statnames,.eoflog)
+ use 0 close log
+ quit
+#; turn into type instance structure
+typeinst(statnames,&statn,&stattype,&stat,&statinst) public {
+ kill stattype,stat,statinst
+ set statn=$L(statnames,",")
+ set pdh=$P(statnames,",")
+ for i=2:1:statn { 
+   set t=$zstrip($P(statnames,",",i),"<>","""","") 
+   if t="" continue
+   if $E(t,1,2)="\\" {
+     set name1=$P(t,"\",4)
+     set name2=$P(t,"\",5)
+   }
+   elseif $L(t,"\")=3 {
+     set name1=$P(t,"\",1)
+     set name2=$P(t,"\",2)
+   }
+   else {
+     B  ; uknown perfmon format
+   }
+   set o1=$F(name1,"(") set o2=$F(name1,")")
+   if o1&&o2 {
+       set type=$E(name1,1,o1-2)
+       set inst=$E(name1,o1,o2-2)
+   }
+   else {
+      set type=name1
+      set inst=""
+   }
+   if '$D(stattype(type)) set stattype(type)=""
+   if inst'="" {
+     set statinst(type,inst,name2)=i
+     set stat(type,name2)=""
+   }
+   else {
+     set stat(type,name2)=i
+   }
+ }
+}
+
+ #; map(report index)=perfmon log index
+ #; report index doesn't includes time
+ #; perfmon log index includes time
+typeinstmap(&map,&stattype,&stat,&statinst,&selectstattype,&selectstat,&selectstatinst)
+ set idxreport=0 kill map
+ set itype=0 while $listnext(selectstattype,itype,type) {
+   if $D(selectstatinst(type)) {
+      set iinst=0 while $listnext(selectstatinst(type),iinst,inst) {
+        set im=0 while $listnext(selectstat(type),im,m) {
+          set i=$I(idxreport) set map(i)=$G(statinst(type,inst,m))
+        }
+      }
+   }
+   else {
+      set istat=0 while $listnext(selectstat(type),istat,m) {
+        set i=$I(idxreport) set map(i)=$G(stat(type,m))
+      }
+   }
+ }
+ quit
+#; build human readable names of stat
+typeinstheader(&selectstattype,&selectstat,&selectstatinst)
+ new statnames set statnames=""
+ new itype,iinst,istat,type,inst,m
+ set itype=0 while $listnext(selectstattype,itype,type) {
+   if $D(selectstatinst(type)) {
+      set iinst=0 while $listnext(selectstatinst(type),iinst,inst) {
+        set im=0 while $listnext(selectstat(type),im,m) { set statnames=statnames_","_inst_"."_m }
+      }
+   }
+   else {
+      set istat=0 while $listnext(selectstat(type),istat,m) { set statnames=statnames_","_m }
+   }
+ }
+ quit statnames
+
+#; build stat name index
+statidx(&statnames,&statidx)
+ kill statidx
+ set statn=$L(statnames,",")
+ set pdh=$P(statnames,",")
+ for i=2:1:statn {
+   set statname=$zstrip($P(statnames,",",i),"<>","""","")
+   if $E(statname,1,2)="\\" { set statname=$E(statname,3,$L(statname)) }
+   elseif $E(statname,1,2)="\" { set statname=$E(statname,2,$L(statname)) }
+   set statdepth=$L(statname,"\")
+   if statdepth=3 {
+     set host=$P(statname,"\",1)
+     set stattype=$P(statname,"\",2)
+     set statname=$P(statname,"\",3)
+     set statidx(stattype,statname)=i
+     set statidx1(statname)=i
+   }
+   elseif statdepth=2 {
+     B 
+   }
+   else {
+     B
+   }
+ }
+ quit
+#; mapstat(selectindex)=perfmonindex
+mapstat
+ kill mapstat
+ set selectn=$L(select,",")
+ #;B  ; mapstat
+ for i=1:1:selectn {
+   set statname=$P(select,",",i)
+   if $L(statname,"\")=1 {
+     if $D(statidx1(statname),pdhi) { set mapstat(i)=pdhi continue }
+     if statname="cpusused" { set mapstat(i)=statidx("Processor(_Total)","% Processor Time") continue }
+     elseif statname="cpususer" { set mapstat(i)=statidx("Processor(_Total)","% User Time") continue }
+     elseif statname="cpussys" { set mapstat(i)=statidx("Processor(_Total)","% Privileged Time") continue }
+     elseif statname="cpusidle" { set mapstat(i)=statidx("Processor(_Total)","% Idle Time") continue }
+     elseif statname="cpusint" { set mapstat(i)=statidx("Processor(_Total)","% Interrupt Time") continue }
+     elseif statname="procs" { set mapstat(i)=statidx("System","Processes") continue}
+     elseif statname="procqlen" { set mapstat(i)=statidx("System","Processor Queue Length") continue}
+     elseif statname="memavailmb" { set mapstat(i)=statidx("Memory","Available MBytes") continue}
+   }  
+   elseif $P(statname,"\")="" && ($L(statname,"\")=3) {
+     set pdhstatype=$P(statname,"\",2)
+     set pdhstatname=$P(statname,"\",3)
+     if $D(statidx(pdhstattype,pdhstatname),pdhi) { set mapstat(i)=pdhi continue }
+   } 
+   elseif $P(statname,"\")="" && ($L(statname,"\")=2) {
+     set pdhstatype=$P(statname,"\",1)
+     set pdhstatname=$P(statname,"\",2)
+     if $D(statidx(pdhstattype,pdhstatname),pdhi) { set mapstat(i)=pdhi continue }
+   }
+   else { B  } ; mapstat
+   
+ } 
+ quit 
+ 
+statnames(log)
+ close log open log:("RS"):1 if $test'=1 B
+ use log
+ read statnames
+ do statidx(.statnames,.statidx)
+ quit
+
+readline(&line,&eof)
+ set exit=0
+readlinenext
+ for del=$C(13,10),$C(10) {
+   set o=$F(logbuf,del) if o>0 {
+     #;B  ; found eol
+     set line=$E(logbuf,1,o-$L(del)-1) set logbuf=$E(logbuf,o,$L(logbuf)) set eof=0 set exit=1 quit
+   }
+ }
+ if exit=1 quit
+ if (fileoffset'<filesize) { set eof=1 quit }
+ set readloglen=filesize-fileoffset
+ if readloglen>16384 set readloglen=16384
+ read logread#readloglen
+ set fileoffset=fileoffset+readloglen
+ set logbuf=logbuf_logread
+ goto readlinenext
+ quit
+#; replace libs by english version
+installEnglish
+ quit
+#; uninstall english version
+uninstallEnglish
+ quit

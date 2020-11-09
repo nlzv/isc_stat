@@ -1,0 +1,1008 @@
+ROUTINE stat.stui
+#; Menu + Setting
+#define MenuOrderId(%1) $LG(%1,1)
+#define MenuSettingId(%1) $LG(%1,2)
+#define MenuDescription(%1) $LG(%1,3)
+#define MenuValPtr(%1) $LG(%1,4)
+#define MenuType(%1) $LG(%1,5)
+#define MenuDefault(%1) $LG(%1,6)
+#define MenuProc set $LB(cmd,label,itemid)=$$MenuProc() if cmd="quit" { quit } elseif cmd="goto" { goto @label } elseif cmd="do" { do @label }
+ 
+ W "stat monitor utility",!
+ W "?<menu number/letter> ask help about this menu",!,!
+ #;new
+ set platform=$$platform^stat.lib
+ do InitSettings 
+ set CtlGlo=$$CtlGlo^stat
+MainMenu
+ set run=$$IsRunning^stat()
+ set run=$LG(run,1)
+
+ kill item
+ set item($I(item))=$LB(1,"startstop",$case(run,1:"stop",0:"start",-1:"unknown state, force stop"),"do:StartStop","menu")
+ set item($I(item))=$LB(2,"showstate","show state","do:ShowState","menu")
+ set item($I(item))=$LB(3,"EditConfig","edit config","goto:EditConfig","menu")
+ set item($I(item))=$LB(4,"tools","tools","goto:ToolsMenu","menu")
+ set item($I(item))=$LB("x","exit","exit","quit","menu")
+ 
+ #;set $LB(cmd,label)=$$MenuProc() if cmd="quit" { quit } elseif cmd="goto" { goto @label } elseif cmd="do" { do @label }
+ $$$MenuProc
+ goto MainMenu
+
+#; start stop
+StartStop
+ if run=0 { 
+   do start^stat
+   hang 1 
+ }
+ elseif run=1 { do stop^stat }
+ quit 
+ 
+#; show running daemons
+ShowState
+ set xJID=60,xPID=70
+ kill dmnidxname,dmnpi
+ set jid="" for {
+   set jid=$order(^SYS("stat","proc",jid),1,pi) quit:jid=""
+   set dmn=$LG(pi,4)
+   set x=$I(dmnidxname(dmn))
+   set dmnidxname(dmn,jid)=""
+   set dmnpi(jid)=pi
+ }
+ set dmn="master" set n=$G(dmnidxname(dmn),0)
+ if n<1 W "stat monitor is not running",!
+ 
+ W "Stat daemons",?xJID,"JID",?xPID,"PID",!
+ W $TR($J("",80)," ","-"),!
+ 
+ do ShowDaemonState("stat monitor master") 
+ set dmn="cpustat" do ShowDaemonState("cpustat (all CPUs usage)")
+ set dmn="diskstat" do ShowDaemonState("diskstat (disks usage)")
+ set dmn="mgstat" do ShowDaemonState("mgstat (overall cache globals performance)")
+ set dmn="cconlogmon" do ShowDaemonState("cache cconsole.log monitor")
+ set dmn="email" do ShowDaemonState("email daemon")
+ set dmn="lockstat" do ShowDaemonState("lock stat")
+ set dmn="jdstat" do ShowDaemonState("jd (journal daemon) stat")
+ set dmn="ecpclistat" do ShowDaemonState("ecp client stat (summ all ecp connections)")
+ set dmn="ecpsrvstat" do ShowDaemonState("ecp server stat (individual ecp connections)")
+ set dmn="cstat" do ShowDaemonState("dynamic cstat monitor")
+ set dmn="iscpsstat" do ShowDaemonState("dynamic cache pidtab stat")
+ set dmn="seizestat" do ShowDaemonState("resource seize stat")
+ set dmn="winnt" do ShowDaemonState("winnt typescript cpu and disk stat")
+ set dmn="iostat" do ShowDaemonState("iostat")
+ set dmn="vmstat" do ShowDaemonState("vmstat")
+ set dmn="winnt.perf" do ShowDaemonState("windows system performance")
+#if 0
+#; master for rooted processes
+ set mstracepi=$G(^SYS("stat","strace","pi"))
+ if stracepi="" {
+ }
+ else {
+ set $LB(jid,pid,pteuc)=mstracepi 
+ set pid=$zu(61,17,stracejid)
+    W "rooted strace master",?xJID,stracejid,?xPID,pid,!
+ }
+#endif
+ if $D(^rOBJ("stat.strace.dw")) {
+   if $$CheckRunning^stat.strace.dw(.pi) {
+     set $LB(jid,pid)=pi
+     W "rooted daemon for strace jd and wd",?xJID,jid,?xPID,pid,!
+   }
+   else {
+     if $G(@CtlGlo@("strace.dw","use"),0)=1 {
+       W !,"there is no jd wd strace daemon run under root",!
+       W "ccontrol session "_$P($zu(86),"*",2)_" -U %SYS start^stat.strace.dw",!
+     }
+   }
+ }
+ try { set t=##class(stat.csp).getStateText() W t,! } catch {}
+ W !,"press ENTER key to continue",!
+ R x
+ W !
+ quit
+ 
+ShowDaemonState(text) [dmnidxname,dmn,dmnpi,xJID,xPID] public {
+ set jid="" for  {
+   set jid=$O(dmnidxname(dmn,jid)) quit:jid=""
+   set pi=dmnpi(jid),pid=$LG(pi,2)
+   W text,?xJID,jid,?xPID,pid,!
+ }
+}
+
+#; Edit Config top
+EditConfig
+#; id menu, id setting
+ kill item
+ set item($I(item))=$LB(item)_setting("logdir")
+ set item($I(item))=$LB(item)_setting("interval")
+ set item($I(item))=$LB(item)_setting("DaysKeepLogs")
+ set item($I(item))=$LB(item)_setting("RunStatOnCacheStartup")
+ if $D(setting("cpustat")) { set item($I(item))=$LB(item)_setting("cpustat") }
+ if $D(setting("diskstat")) { set item($I(item))=$LB(item)_setting("diskstat") }
+ if platform="linux" {
+   set item($I(item))=$LB(item)_$LB("iostat","linux iostat","@$$CtlGlo^stat.lib@(""iostat"")","bool",0)
+ }
+ elseif platform="aix" {
+   set item($I(item))=$LB(item)_$LB("iostat","aix iostat","@$$CtlGlo^stat.lib@(""iostat"")","bool",0)
+ }
+ elseif platform="winnt" {
+   if $D(^rOBJ("stat.winnt.perf")) {
+     set item($I(item))=$LB(item)_$LB("msperf","ms system performance metrics","goto:EditMsPerf","menu")
+   }
+ }
+ if $D(setting("unix.vmstat")) {
+   set item($I(item))=$LB(item)_setting("unix.vmstat")
+ }
+ set item($I(item))=$LB(item)_setting("mgstat")
+ if $D(^rOBJ("stat.csp.0"))&&$D(^rOBJ("stat.csp.1")) set item($I(item))=$LB(item,"stat.csp",##class(stat.csp).getStateText(),"goto:EditConfigCsp","menu")
+ 
+ if $D(^rOBJ("stat.cconlogmon")) {
+   set item($I(item))=$LB(item)_$LB("cconlogmon","cconlogmon cache console log monitor setting","goto:EditCConLogMonConfig","menu")
+ }
+ if $D(^rOBJ("stat.lock")) {
+   set item($I(item))=$LB(item)_setting("lockstat")
+ }
+ if $D(^rOBJ("stat.journal")) { set item($I(item))=$LB(item)_setting("jdstat") }
+ if $D(^rOBJ("stat.ecp.cli")) { set item($I(item))=$LB(item)_setting("ecpclistat") }
+ if $D(^rOBJ("stat.ecp.srv")) { set item($I(item))=$LB(item)_setting("ecpsrvstat") }
+ if $D(^rOBJ("stat.cstat")) { set item($I(item))=$LB(item)_setting("cstat") }
+ if $D(setting("iscpsstat")) { set item($I(item))=$LB(item)_setting("iscpsstat") }
+ if $D(^rOBJ("stat.seize")) { set item($I(item))=$LB(item)_setting("seizestat") }
+ set item($I(item))=$LB(item)_$LB("","web gateway dir or ssh:user@password:host/dir","goto:WebGWConfig","menu")
+ set item($I(item))=$LB(item)_$LB("","login setting","goto:LoginSettings","menu")
+ set item($I(item))=$LB(item)_$LB("","email setting","goto:EditEmailConfig","menu")
+ set item($I(item))=$LB(item)_$LB("sftp","sftp setting for upload systat","goto:EditSftpConfig","menu")
+ set item($I(item))=$LB(item)_setting("statns")
+ set item($I(item))=$LB(item)_$LB("sysstatdbdir","systat database dir","@$$CtlGlo^stat.lib@(""stat"",""dbdir"")","string",$zu(12)_"sysstat")
+ if $D(setting("cpuuserlimit")) {
+   set item($I(item))=$LB(item)_setting("cpuuserlimit")
+ }
+ if $D(setting("cpuuserlimitsettings")) {
+   set item($I(item))=$LB(item)_setting("cpuuserlimitsettings")
+ }
+ set item($I(item))=$LB(0)_$LB("","goto main menu","goto:MainMenu","menu")
+ set item($I(item))=$LB("x")_$LB("","exit","quit","menu")
+
+ $$$MenuProc
+ #;set $LB(cmd,label)=$$MenuProc() B  if cmd="quit" { quit } elseif cmd="goto" { goto @label }
+ 
+ goto EditConfig
+EditMsPerf
+ kill item
+ kill pte do CtlGloCheckDaemon^stat.lib($$DaemonName^stat.winnt.perf(),.pte)
+ if $order(pte(""))'="" { set runtimestate=1 } else { set runtimestate=0 } kill pte
+ set item($I(item))=$LB(item,"stat.msperf.runconfig","run msperf config","@$$CtlGlo^stat.lib@(""msperf"",""run"")","bool",0)
+ set item($I(item))=$LB(item,"stat.msperf.runtime","msperf stat "_$case(runtimestate,1:"stop",0:"start"),"do:MsPerfRuntimeStartStop","menu")
+ set item($I(item))=$LB(item,"stat.msperf.config","msperf config file="_$G(@CtlGlo@("msperf","config")),"do:MsPerfConfigFile","menu")
+ set item($I(item))=$LB("0")_$LB("","goto main menu","goto:MainMenu","menu")
+ set item($I(item))=$LB("x")_$LB("","exit","quit","menu")
+ $$$MenuProc
+ goto EditMsPerf
+MsPerfRuntineStartStop
+ if runtimestate=1 { do stop^stat.winnt.perf("stat stui user") }
+ elseif runtimestate=0 { do start^stat.winnt.perf(,,,1) }
+ quit
+MsPerfConfigFile
+ set MsPerfConfigFile=$G(@CtlGlo@("msperf","config"))
+ if $D(^rOBJ("%zreadline")) {
+   do get^%zreadline("WebGW log>",.MsPerfConfigFile,.MsPerfConfigFileOffset,.InsertMode,"FS")
+ }
+ else {
+   R "msperfmon config file>",MsPerfConfigFile W !
+ }
+ set @CtlGlo@("msperf","config")=$G(MsPerfConfigFile)
+ quit
+IscPsConfig
+#if 1
+ kill pte do CtlGloCheckDaemon^stat.lib("iscpsstat",.pte) if $order(pte(""))'="" { set runtimestate=1 } else { set runtimestate=0 } kill pte
+#else
+ set runtimestate=$$ChkRunning^stat.iscps
+#endif
+ kill item
+ set item($I(item))=$LB(item)_$LB("iscpsstat","config run iscps on stat startup",$name(^SYS("stat","iscpsstat")),"bool",0)
+ set item($I(item))=$LB(item)_$LB("iscpsStatStartStop","runtime "_$case(runtimestate,1:"stop",0:"start"),"do:IscPsRuntimeStartStop","menu")
+ set item($I(item))=$LB(item)_$LB("iscpsstat.inusebufwait","extended inusebufwait info","@$$CtlGlo^stat.lib@(""iscps"",""BufWaitX"")","bool",0)
+ set item($I(item))=$LB(item)_$LB("iscpsstat.jobtypes.config","job types active config","@$$CtlGlo^stat.lib@(""iscpsstat"",""JobType"")","bool",0)
+ set item($I(item))=$LB(item)_$LB("iscpsstat.jobtypes.runtime","job types active runtime (todo)")
+ set item($I(item))=$LB(item)_$LB("iscpsstat.jobtypes.config","cpu cycles proc schedstat config","@$$CtlGlo^stat.lib@(""iscpsstat"",""pscpu"")","bool",0)
+ set item($I(item))=$LB(item)_$LB("iscpsstat.jobtypes.runtime","cpu cycles proc schedstat runtime (todo)")
+ set item($I(item))=$LB(0)_$LB("iscpsstat.uppermenu","return to upper menu","goto:EditConfig","menu")
+ $$$MenuProc
+ goto IscPsConfig
+IscPsRuntimeStartStop
+ if runtimestate=1 { do stop^stat.iscps }
+ elseif runtimestate=0 { do start^stat.iscps }
+ hang 1
+ #;kill pte do CtlGloCheckDaemon^stat.lib("iscpsstat",.pte) if $order(pte(""))'="" { set runtimestate=1 } else { set runtimestate=0 } kill pte
+ quit
+EditConfigCsp
+ W "if csp server stat not installed then acitve flag log in file, db doesn't matter",!
+ W "install/uninstall stat.csp disturbs production, web requests might be terminated during short time",!
+ set statcspInstalled=$G(^SYS("stat","csp","installed"),0)
+ W "stat.csp "_$case(statcspInstalled,1:"",0:"not ",:"unknown ")_"installed",!
+ set cspstat=##class(stat.csp).getEnabled() set cspstatold=cspstat
+ set %csplogfile=$zboolean(cspstat,1,1)
+ set %csplogdb=$zboolean(cspstat,2,1)\2
+ kill item
+ set item($I(item))=$LB(item,"stat.csp.install","stat.csp "_$case(statcspInstalled,1:"uninstall",0:"install"),"do:cspInstall","menu")
+ set item($I(item))=$LB(item,"stat.csp.logfile.config","csp log in file config","@$$CtlGlo^stat.lib@(""csp"",""log"",""file"")","bool",0)
+ set item($I(item))=$LB(item,"stat.csp.logfile.runtime","csp log in file runtime","%csplogfile","bool")
+ set item($I(item))=$LB(item,"stat.csp.logdb.config","csp log in db config","@$$CtlGlo^stat.lib@(""csp"",""log"",""db"")","bool",0)
+ set item($I(item))=$LB(item,"stat.csp.logdb.runtime","csp log in db runtime","%csplogdb","bool")
+ set item($I(item))=$LB(item,"stat.csp.runtimeupdate","update runtime","goto:EditConfigCspUpdateRuntime","menu")
+ set item($I(item))=$LB(0,"stat.csp.return","goto upper menu","goto:EditConfig","menu")
+ $$$MenuProc
+ goto EditConfigCsp
+EditConfigCspUpdateRuntime
+ set cspstat=2*%csplogdb+%csplogfile
+ if cspstatold'=cspstat do ##class(stat.csp).setEnabled(cspstat)
+ goto EditConfigCsp
+cspInstall
+ if statcspInstalled=1 goto cspUninstall
+ do ##class(stat.csp).install()
+ set ret=##class(stat.csp).CspBrokerPatchInstall()
+ W "csp broker install status "_$LG(ret,1)_" "_$LG(ret,2),!
+ if $LG(ret,1)=1 {
+   if $LG(ret,2)="update" {
+     W "%CSP.Broker class patched for stat.csp to log class method and arguments, compile it",!
+     set ret=$SYSTEM.OBJ.Compile("%CSP.Broker","cdk")
+     W "terminate csp server processes",!
+     do ##class(stat.csp).killallcsp()
+   }
+   
+ }
+ else {
+   if $LG(ret,2)="update"
+ }
+ W "done",!,"---",!
+ quit
+cspUninstall
+ do ##class(stat.csp).uninstall()
+ set ret=##class(stat.csp).CspBrokerPatchUninstall()
+ W "csp broker uninstall status "_$LG(ret,1)_" "_$LG(ret,2),!
+ if $LG(ret,1) {
+   if $LG(ret,2)="update" {
+     W "%CSP.Broker class patch code is removed, compile",!
+     set ret=$SYSTEM.OBJ.Compile("%CSP.Broker","cdk")
+     W "terminate csp server processes",!
+     do ##class(stat.csp).killallcsp()
+   }
+ }
+ else {
+   if $LG(ret,2)="update"
+ }
+ W "done",!,"---",!
+ quit
+WebGWConfig
+ W "set dir or ssh access to webgw/cspgw dir to grub CSP.ini config and log CSP.log",!
+ kill item
+ set item($I(item))=$LB(item,"webgw.edit.new","new webgw","goto:WebGWEdit","menu")
+ set item($I(item))=$LB(item,"webgw.edit.existed","edit webgw","goto:WebGWEdit","menu")
+ set item($I(item))=$LB(item,"","delete webgw","goto:WebGWConfigDelete","menu")
+ set item($I(item))=$LB(item,"","list webgw","do:WebGWList","menu")
+ set item($I(item))=$LB(0,"","return to upper menu","goto:EditConfig","menu")
+ $$$MenuProc
+ goto WebGWConfig
+WebGWEdit
+ if $G(itemid)="webgw.edit.new" { set webgwnew=1 }
+ elseif $G(itemid)="webgw.edit.existed" { 
+   set webgwnew=0
+   for { 
+     R "webgwid>",webgwid W !
+     if webgwid="" goto WebGWConfig
+     if $D(@CtlGlo@("webgw","d",webgwid),webgwrec) {  set $LB(%webgwname,%webgwaccess,%webgwactive)=webgwrec quit }
+   }
+ }
+ kill item
+ set item($I(item))=$LB(item,"","webgw name","%webgwname","string")
+ set item($I(item))=$LB(item,"","webgw dir or ssh:user:passwor@host/dir","%webgwaccess","string")
+ set item($I(item))=$LB(item,"","active (process config and log)","%webgwactive","bool",0)
+ set item($I(item))=$LB("s","","save config","do:WebGWSave","menu")
+ set item($I(item))=$LB(0,"","return to upper menu","goto:EditConfig","menu")
+ $$$MenuProc
+ goto WebGWEdit
+WebGWSave
+ if $G(itemid)="webgw"
+ if %webgwname="" W "name can not be empty string",! quit
+ set webgwrec=$LB(%webgwname,%webgwaccess,%webgwactive)
+ if webgwnew=1 {
+   for i=1:1 if '$D(@CtlGlo@("webgw","d",i)) quit
+   set webgwid=i
+ }
+ set @CtlGlo@("webgw","d",webgwid)=webgwrec
+ W "config updated",!
+ if $E(%webgwaccess,1,4)="ssh:" {
+    W "Do you want check ssh access",! R answer W !
+    W "not implemented",!
+ }
+ else {
+   if ##class(%File).DirectoryExists(%webgwaccess) { W "directory exist",! }
+   else { W "directory doesn't exist",! }
+ }
+ quit
+WebGWList
+ W "id,name,access,active",!
+ set id="" for { set id=$order(@CtlGlo@("webgw","d",id),1,webgwrec) quit:id="" 
+   W id_","_$LG(webgwrec,1)_","_$LG(webgwrec,2)_","_$case($LG(webgwrec,3),1:"y",0:"n",:"unkonwn"),!
+ }
+ quit
+LoginSettings
+ kill item
+ set item($I(item))=$LB(item)_setting("login.use")
+ set item($I(item))=$LB(item)_setting("login.user")
+ set item($I(item))=$LB(item)_setting("login.password")
+ set item($I(item))=$LB(0)_$LB("stat.login.uppermenu","return to upper menu","goto:EditConfig","menu")
+ $$$MenuProc
+ quit
+EditCConLogMonConfig
+ kill item
+ set item($I(item))=$LB(item)_setting("cconlogmon")
+ set item($I(item))=$LB(item)_setting("strace.dw")
+ set item($I(item))=$LB(item)_setting("strace.dw.stopdelay")
+ set item($I(item))=$LB(0)_$LB("menu.return","return to up menu","goto:EditConfig","menu")
+ set item($I(item))=$LB("x")_$LB("exit","exit utility","quit","menu")
+ $$$MenuProc
+ goto EditCConLogMonConfig
+
+ 
+EditEmailConfig
+ kill item
+ set item($I(item))=$LB(item)_setting("email.use")
+ set item($I(item))=$LB(item)_setting("email.smtp.user")
+ set item($I(item))=$LB(item)_setting("email.smtp.password")
+ set item($I(item))=$LB(item)_setting("email.smtp.ip")
+ set item($I(item))=$LB(item)_setting("email.smtp.port")
+ set item($I(item))=$LB(item)_setting("email.smtp.starttls")
+ set item($I(item))=$LB(item)_setting("email.smtp.tlsconfig")
+ set item($I(item))=$LB(item)_setting("email.smtp.auth")
+ set item($I(item))=$LB(item)_setting("email.from")
+ set item($I(item))=$LB(item)_setting("email.to")
+ set item($I(item))=$LB(item)_setting("email.ResendDelay")
+ set item($I(item))=$LB(item)_setting("email.ResendLimit")
+ set item($I(item))=$LB("t","email.check","test send email","do:EmailTest","menu")
+ set item($I(item))=$LB(0)_$LB("menu.return","return to up menu","goto:EditConfig","menu")
+ set item($I(item))=$LB("x")_$LB("exit","exit utility","quit","menu")
+ $$$MenuProc
+ #;set $LB(cmd,label)=$$MenuProc() if cmd="quit" { quit } elseif cmd="goto" { goto @label }
+ goto EditEmailConfig
+EditSftpConfig
+ W "ToDo: not implemented yet, though sftp module works if set config in global directly",!,!
+ goto EditConfig
+ $$$MenuProc
+ goto EditSftpConfig
+ 
+EditCpuUserLimitSettings
+ kill item 
+ set item($I(item))=$LB(item)_$LB("CpuUser.Limit","percentage limit to activate iscps",$name(^SYS("stat","cpuuser","limit")),"string",50)
+ set item($I(item))=$LB(item)_$LB("CpuUser.Limit.top","top number of processes to track",$name(^SYS("stat","cpuuser","top")),"string",0)
+ set item($I(item))=$LB(0)_$LB("CpuUserLimitSettings.return","return to up menu","goto:EditConfig","menu")
+ $$$MenuProc
+ goto EditCpuUserLimitSettings
+
+ToolsMenu
+ kill item
+#;set item($I(item))=$LB(1,"import","import packed logs into statns",,"menu")
+#;set item($I(item))=$LB(2,"perfmon","run perfmon session",,"menu")
+#;set item($I(item))=$LB(2,"mergestat","merge stat",goto:ToolMergeStat,"menu")
+ set item($I(item))=$LB(item,"PackNow","generate packed stats log now","do:MkPackStats","menu")
+ set item($I(item))=$LB(item,"SplitSar","split sar file by stat type","goto:ToolSplitSar","menu")
+ set item($I(item))=$LB(item,"dbRandomReadTest","db random read test","do:dbRandomReadTest","menu")
+ set item($I(item))=$LB(item,"iscps.runtime.settings","isc ps runtime settings","goto:ISCPSRunTimeSettings","menu")
+ set item($I(item))=$LB(item,"CPUs.User.Limit","trigger individual processes perf (Tokens,GloRefs,GloUpd,PhyRd) on CPUs user limit above","do:PSOnCPUsUserLimit","menu")
+ set item($I(item))=$LB(item,"pButtons.unpack","unpack pButtons","do:pButtonsUnpack","menu")
+ if $D(^rOBJ("stat.stui.msperfmon")) set item($I(item))=$LB(item,"","transform ms perfmon csv log","do:msPerfmon","menu")
+ set item($I(item))=$LB(item,"tool.importCspServerLog","load csp server stat (aka stat.csp) for SQL projection","do:importCspServerLog","menu")
+ set item($I(item))=$LB(item,"tool.importWebGWLog","load web gateway log (aka CSP.log) for SQL projection","do:importWebGWLog","menu")
+ set item($I(item))=$LB(item,"tool.WebGWtoPerfCSV","web gateway log to perf csv","do:WebGWtoPerfCSV","menu")
+ set item($I(item))=$LB(0,"mainmenu","goto main menu","goto:MainMenu","menu")
+ set item($I(item))=$LB("x","exit","exit","quit","menu")
+ $$$MenuProc
+ goto ToolsMenu
+
+ISCPSRunTimeSettings
+ kill item
+ set item($I(item))=$LB(item,"cpuuserlimit","cpu user limit trigger","","menu")
+ set item($I(item))=$LB(item,"procslimit","% part of all processes tokens")
+ set item($I(item))=$LB(item,"top","top process")
+ set item($I(item))=$LB(item,"cpu","oscpu")
+ set item($I(item))=$LB(0,"menu_up","goto up menu","goto:ToolsMenu","menu")
+ $$$MenuProc
+ quit
+
+EmailTest
+ new text,ret
+ set text(1)="test notification"
+ set text(2)="from stat monitor"
+ set ret=$$Check^stat.email("stat monitor test",.text)
+ W !,"email sending " 
+ if +ret=1 { W "ok" }
+ elseif +ret=0 { W "failed" }
+ W !,!
+ quit
+
+#; general code to process menu
+#; 1 setting id
+#; 2 description
+#; 3 value ptr
+#; 4 type
+#; 5 default
+#; 6 ?checkcode
+#; 7 options set value ptr to default
+#; question should value ptr be initialized to default
+#define SetValuePtrToDefault(%1) $LG(%1,7)
+MenuProc() [item] public {
+ for  {
+   set i="" for {
+     set i=$order(item(i)) quit:i=""
+     W $LG(item(i),1)_") "_$LG(item(i),3)
+     #; W !
+     set type=$LG(item(i),5)
+     set valptr=$LG(item(i),4)
+     set default=$$$MenuDefault(item(i))
+     if type="bool" { W "=" W $$BoolText($G(@valptr,default)) W ! }
+     elseif type="string" { W "=" W $G(@valptr,default) W ! }
+     elseif type="menu" { W ! }
+     else { W ! }
+     if +$$$SetValuePtrToDefault(item(i)) { set @valptr=default }
+   }
+   set answer=""
+   set ret=##class(%Prompt).GetString(">",.answer)
+   if $E(answer,1)="?" {
+     do FindAnswerId($E(answer,2),.item,.id) do:id'="" w^stat.stui.doc($$$MenuSettingId(item(id)))
+     set answer="" set ret=##class(%Prompt).GetString("do you want edit it? (Yy1/Nn0)>",.answer)
+     if "Yy1"'[answer continue
+   }
+   else { do FindAnswerId(answer,.item,.id) }
+   if id="" continue
+   set settingId=$$$MenuSettingId(item(id))
+   set itemid=$LG(item(id),2)
+   set desc=$LG(item(id),3)
+   set type=$LG(item(id),5)
+   set valptr=$LG(item(id),4)
+   set default=$LG(item(id),6)
+   W !
+   if type="bool" {
+     do AskBool(desc,valptr,default)
+     W "press ENTER key to continue" R x W !
+   }
+   elseif type="string" { 
+     do AskString(desc,valptr,default)
+     W "press ENTER key to continue" R x W !
+   }
+   elseif type="menu" {
+    if $P(valptr,":",1)="goto" { if $P(valptr,":",2)'="" { set ret=$LB("goto",$P(valptr,":",2),itemid) quit } }
+    elseif $P(valptr,":",1)="do" { set ret=$LB("do",$P(valptr,":",2),itemid) quit }
+    elseif valptr="quit" { set ret=$LB("quit") quit }
+#;   elseif valptr="exit" { B  quit "exit" }
+  }
+ }
+ quit ret
+}
+ 
+#; menu id to order id
+FindAnswerId(answer,&item,&id) public {
+  set id="" 
+  set i="" for {
+  set i=$O(item(i),1,d) quit:i=""
+  if $LG(d,1)=answer set id=i
+  }
+}
+ 
+AskBool(text,valueptr,default) public {
+ set opt=$G(@valueptr,0)
+ W text_": "_$$BoolText(opt)
+ set answer=""
+ set ret=##class(%Prompt).GetString("Yy1/Nn0>",.answer)
+ W ! 
+ if answer="" W "no change",! quit
+ if "Yy1"[answer { set val=1 }
+ elseif "Nn0"[answer { set val=0  }
+ else {
+   W "wrong value",!
+   quit
+ } 
+ set @valueptr=val
+ W "new setting "_$$BoolText(val),!
+}
+
+AskString(text,valueptr,default="")
+ set val=$G(@valueptr,default)
+ W text_": "_val
+ set answer=""
+ set ret=##class(%Prompt).GetString(">",.answer)
+ W !
+ if answer="" W "no change",! quit
+ set val=answer
+ set @valueptr=val
+ W "new setting: "_val,!
+ set answer=""
+quit
+ 
+ViewLineSettingRightVal(text,w) public {
+  quit text_$TR($J("",w-$L(text))," ","_") 
+}
+BoolText(b) public { quit $case(b,1:"Yes",0:"No",:"Unknown") }
+ #; list of
+ #; id, description, value reference, type, default, checkcode, ...
+ #; type do:label[^rtn] should not change item array
+InitSettings
+#; 1 setting id
+#; 2 description
+#; 3 value ptr
+#; 4 type
+#; 5 default
+#; 6 ?checkcode
+#define InitSetting(%1,%2,%3,%4,%5) set setting(%1)=$LB(%1,%2,%3,%4,%5)
+#define NULL
+ kill setting
+ $$$InitSetting("RunStatOnCacheStartup","run stat monitor at cache starup automatically",$name(^SYS("stat")),"bool",0)
+#; set setting("RunStatOnCacheStartup")=$LB("RunStatOnCacheStartup","run stat monitor at cache starup automatically",$name(^SYS("stat","run")),"bool")
+#if 1
+ if platform="linux" {
+   $$$InitSetting("cpustat","linux cpu stat /proc/stat",$name(^SYS("stat","cpu")),"bool",0)
+   $$$InitSetting("diskstat","linux disk stat /proc/diskstats",$name(^SYS("stat","disk")),"bool",0)
+ }
+#else
+ $$$InitSetting("cpustat","collect cpu stat",$name(^SYS("stat","cpu")),"bool",0)
+ $$$InitSetting("diskstat","collect disk stat",$name(^SYS("stat","disk")),"bool",0)
+#endif
+ if platform="linux" {
+   $$$InitSetting("iostat","iostat",$name(^SYS("stat","iostat")),"bool",0)
+ }
+ if (platform="linux")||(platform="aix") {
+  $$$InitSetting("unix.vmstat","unix vmstat",$name(^SYS("stat","vmstat")),"bool",0)
+ }
+#; set setting("cpustat")=$LB("cpustat","collect cpu stat",$name(^SYS("stat","cpu")),"bool",0)
+ $$$InitSetting("mgstat","collect gm (cache global module) stat",$name(^SYS("stat","mgstat")),"bool",0)
+ if $D(^rOBJ("stat.cconlogmon")) {
+    $$$InitSetting("cconlogmon","run cache cconsole monitor",$name(^SYS("stat","cconlogmon")),"bool",0)
+ }
+ if $D(^rOBJ("stat.lock")) {
+    $$$InitSetting("lockstat","run lock stat",$name(^SYS("stat","lockstat")),"bool",0)
+ }
+ if $D(^rOBJ("stat.journal")) {
+   $$$InitSetting("jdstat","run jd (journal daemon) stat",$name(^SYS("stat","jdstat")),"bool",0)
+ }
+ if $D(^rOBJ("stat.ecp.cli")) {
+   $$$InitSetting("ecpclistat","ecp client stat (summ all ecp connections)",$name(^SYS("stat","ecpclistat")),"bool",0)
+ }
+ if $D(^rOBJ("stat.ecp.srv")) {
+   $$$InitSetting("ecpsrvstat","ecp server stat (ecp connections individually)",$name(^SYS("stat","ecpsrvstat")),"bool",0)
+ }
+ if $D(^rOBJ("stat.cstat")) {
+   $$$InitSetting("cstat","run cstat in loop dynamic parameter change",$name(^SYS("stat","cstat")),"bool",0)
+ }
+#if 1
+ #; IscPsConfig is not completed
+ if $D(^rOBJ("stat.iscps")) && 1 {
+   $$$InitSetting("iscpsstat","iscps processes stat","goto:IscPsConfig","menu","")
+ }
+#else 
+ $$$InitSetting("iscpsstat","iscps processes stat",$name(^SYS("stat","iscpsstat")),"bool",0)
+#endif 
+ if $D(^rOBJ("stat.seize")) {
+   $$$InitSetting("seizestat","resources seize stat",$name(^SYS("stat","seizestat")),"bool",0)
+ }
+#if 0
+ $$$InitSetting("strace.dw","strace jd and wd on write timeout/inactivity",$name(^SYS("stat","strace.dw","use")),"bool",0)
+ $$$InitSetting("strace.dw.stopdelay","deactivate strace delay (seconds)",$name(^SYS("stat","strace.dw","stop delay")),"string",86400)
+
+ $$$InitSetting("cpuuserlimit","iscps stat on cpu user limit",$name(^SYS("stat","iscps.cpuuserlimit","use")),"bool",0)
+ $$$InitSetting("cpuuserlimitsettings","iscps stat on cpu user limit setting","goto:EditCpuUserLimitSettings","menu","")
+#endif
+#;$$$InitSetting("rootdaemon","run rooted daemon",$name(^SYS("stat","strace")),"bool",0)
+ 
+ 
+ #; $$$InitSetting("csplogmon")
+ #; $$$InitSetting("csplogmonpath")
+ 
+ #; $$$InitSetting("httpd")
+ #; $$$InitSetting("httpd.path")=""
+ 
+ #; $$$InitSetting("statserver")
+ #; $$$InitSetting("statserver.connection.tls")
+ #; $$$InitSetting("statserver.connection.port")
+ 
+ #; $$$InitSetting("statclient")
+ #; $$$InitSetting("statclient.connection.ip")
+ #; $$$InitSetting("statclient.connection.port")
+ #; $$$InitSetting("statclient.connection.tls")
+
+ $$$InitSetting("logdir","log directory",$name(^SYS("stat","logdir")),"string",$$$NULL)
+ $$$InitSetting("interval","stat interval (seconds)",$name(^SYS("stat","interval")),"string",1)
+ $$$InitSetting("DaysKeepLogs","days to keep logs",$name(^SYS("stat","DaysKeepLogs")),"string",3)
+ $$$InitSetting("statns","statns stat log namespace (define it in cache config)",$name(^SYS("stat","statns")),"string",$$$NULL)
+
+ $$$InitSetting("email.use","use email notification",$name(^SYS("stat","email")),"bool",0)
+ $$$InitSetting("email.smtp.user","smtp user",$name(^SYS("stat","email","smtp","user")),"string","")
+ $$$InitSetting("email.smtp.password","smtp password ",$name(^SYS("stat","email","smtp","password")),"string","")
+ $$$InitSetting("email.smtp.ip","smtp ip/hostname",$name(^SYS("stat","email","smtp","ip")),"string","")
+ $$$InitSetting("email.smtp.port","smtp port ",$name(^SYS("stat","email","smtp","port")),"string","25",)
+ $$$InitSetting("email.smtp.starttls","use starttls",$name(^SYS("stat","email","smtp","starttls")),"bool",1)
+ $$$InitSetting("email.smtp.tlsconfig","cache tls configname ",$name(^SYS("stat","email","tlsconfig")),"string","")
+ $$$InitSetting("email.smtp.auth","authentication mechanism",$name(^SYS("stat","email","smtp","auth")),"string","CRAM-MD5,LOGIN,PLAIN")
+ $$$InitSetting("email.from","from",$name(^SYS("stat","email","from")),"string","")
+ $$$InitSetting("email.to","to",$name(^SYS("stat","email","to")),"string","")
+ $$$InitSetting("email.ResendDelay","Resend Delay (secs)",$name(^SYS("stat","email","ResendDelay")),"string","600")
+ $$$InitSetting("email.ResendLimit","Resend Limit",$name(^SYS("stat","email","ResendDelay")),"string",5)
+ 
+ $$$InitSetting("login.use","use login for stat",$name(^SYS("stat","master","login")),"bool",0)
+ $$$InitSetting("login.user","user",$name(^SYS("stat","master","user")),"string","")
+ $$$InitSetting("login.password","password",$name(^SYS("stat","master","password")),"string","")
+
+ quit
+
+#if 0 
+
+ShowConfig
+ set w=70
+ set opt=$G(^SYS("stat","run"),0)
+ set text="automatically start stat monitor on cache startup"
+ W $$ViewLineSettingRightVal(text,w)_" "_$$BoolText(opt),!
+ set opt=$G(^SYS("stat","cpu"),0)
+ W "cpustat (collect all CPUs usage stat)",!
+ W "="_$$BoolText(opt),!
+ set opt=$G(^SYS("stat","mgstat"),0)
+ W "mgstat (collect overall cache global performance) "_$case(opt,1:"Yes",0:"No"),!
+ set opt=$G(^SYS("stat","logdir"))
+ W "log directory (include trailing FS path delimiter):",!
+ W opt,!
+ W ""
+ W !,"press ENTER key to continue",!
+ R x
+ quit
+
+EditConfigOld
+ kill text
+ set text(1)="run stat monitor at cache starup automatically"
+ set text(2)="log directory"
+ set text(3)="collect cpustat"
+ set text(4)="collect mgstat"
+ set text(6)="enable strace"
+ W "1) "_text(1),!
+ W "2) "_text(2),!
+ W "3) "_text(3),!
+ W "4) "_text(4),!
+ W "5) enable cache cconsole monitor",!
+ W "6) "_text(6),!
+ W "0) goto main menu",!
+ W "x) exit util",!
+ set answer=""
+ set ret=##class(%Prompt).GetString(">",.answer)
+ W !
+ if answer=0 goto mainmenu
+ if answer="x" quit
+ if answer=1 {
+   set opt=$G(^SYS("stat","run"),0)
+   W text(1)_": "_$case(opt,1:"Yes",0:"No")
+   set answer=""
+   set ret=##class(%Prompt).GetString("Yy1/Nn0>",.answer)
+   W !
+   if answer="" W "no change",! goto EditConfig
+   if "Yy1"[answer { set ^SYS("stat","run")=1 }
+   if "Nn0"[answer { set ^SYS("stat","run")=0 }
+ }
+ elseif answer=2 {
+   set opt=$G(^SYS("stat","logdir"))
+   W text(2)_":",! 
+   W opt
+   set answer=""
+   set ret=##class(%Prompt).GetString("directory>",.answer)
+   W !
+   if answer=""{  W "no change",! }
+   else {
+     set logdir=answer
+     set chk=$$checklogdir^stat.monitor()
+     if chk {
+       W "new settings",!
+       W logdir,!
+       set ^SYS("stat","logdir")=logdir
+     }
+     else {
+       W "new settings fails check",!
+     }
+   }
+ }
+ elseif answer=3 { do AskBool(text(3),$name(^SYS("stat","cpu")),1) }
+ elseif answer=4 { do AskBool(text(4),$name(^SYS("stat","mgstat")),1) }
+ elseif answer=6 {
+   do AskBool(text(6),$name(^SYS("stat","strace")),1)
+   set opt=$G(^SYS("stat","strace"))
+   if opt=1 {
+     W "you need start as root",!
+     W "ccontrol session <instance> -U %SYS start^stat.strace",!
+     W "this process exits strace daemon as background job",!
+     W "your need to do it after every cache restart",!
+   }
+ }
+ else {
+   W "not implmented yet",!
+ }
+ W "press ENTER key to continue" R x
+ W !
+ goto EditConfigOld
+#endif
+
+ToolSplitSar
+ W "enter sar log file",!
+ R ">",sar,!
+ if sar="" goto ToolsMenu
+ if ##class(%File).Exists(sar) {
+   W "enter comma list of stat to extract allowed values are cpu,disk",!
+   R ">",stat,!
+   if $F(stat,"disk") {
+     W "device",!
+     R ">",dev,!
+   } 
+   do report^stat.sar(sar,stat,,dev)
+ }
+ else { 
+  W "can not open file",!
+  goto ToolSplitSar
+ }
+ goto ToolsMenu
+ #; generate stats archive now
+MkPackStats
+ new  set h=$H do run^stat.pack($P(h,",",1),$P(h,",",2),,0,0) quit
+ #; idea merge different selected stats in one csv file basing on timestamp.
+ #; select name of file and stat names to merge
+ToolMergeStat
+ 
+ #define RandomReadTestLogDebug 0
+dbRandomReadTest
+ new
+ set config=$name(^SYS("stat","RandomDBRead","config"))
+dbRandomReadTestNext
+ W "db random read test to check disk bandwidth",!
+ if $D(@config) {
+   W "do you want to use last paramaters?",!
+   R "Yy1/Nn0>",answer,!
+   if "Yy1"[$E(answer,1) {
+     kill dbdirs kill nproc set dbdir=""
+     w "dbdir,process number",!
+     for {
+        set dbdir=$order(@config@("defaults",dbdir),1,n) quit:dbdir=""
+        set dbdirs(dbdir)=n
+        W dbdir_","_n,!
+     }
+     W "do you want to change number of processes",!
+     R "Yy1/Nn0>",answer,!
+     if "Yy1"[$E(answer,1) {
+        set dbdir="" for {
+           set dbdir=$order(dbdirs(dbdir),1,n) quit:dbdir=""
+           set dbdirs(dbdir)=n
+           W dbdir_","_n,!
+           for {
+             W "new number of processes",!
+             R ">",n,! if +n>0 quit
+           }
+           set dbdirs(dbdir)=n
+           W "do you want save change in config",!
+           R "Yy1/Nn0>",saveconfig,!
+           if "Yy1"[$E(saveconfig,1) { try { set @config@("defaults",dbdir)=n } catch {} }
+        }
+     }
+     goto dbRandomReadTestRun
+   }
+   goto dbRandomReadTestNew
+ }
+ else {
+dbRandomReadTestNew
+   kill @config@("defaults")
+   kill dbdirs kill nproc set n=$zu(90,5)
+   for i=1:1:n {
+     set dbdir=$zu(90,7,i)
+     W "do you want test for "_dbdir,!
+     R "Yy1/Nn0>",answer,!
+     if "Yy1"[$E(answer,1) {
+       set dbdirs(dbdir)=""
+       for {
+         W "how many db read processes ",!
+         R ">",answer,!
+         if +answer>0 set dbdirs(dbdir)=answer quit
+       }
+     }
+   }
+   set dbdir="" for { set dbdir=$order(dbdirs(dbdir),1,n) quit:dbdir=""  set @config@("defaults",dbdir)=n }
+ }
+dbRandomReadTestRun
+ W "how long run test in seconds?",!
+ R ">",time,!
+ if time<1 goto dbRandomReadTestRun
+ 
+ set runid=$$runid^stat.test.RandomDBRead
+ kill @($$iodtgref^stat.test.RandomDBRead(runid))
+ do mkstat^stat.test.RandomDBRead(.dbdirs,runid)
+ set logprefix="test_RandomDBRead"
+ set logtime=$$lognametime^stat.lib($h)
+ set logdir=$$logdir^stat.lib
+ set log=$$logdir^stat.lib_"test_RandomDBRead"_$$lognametime^stat.lib($h)_".log"
+#if $$$RandomReadTestLogDebug=0
+ job log^stat.test.RandomDBRead(1,time,logdir,logprefix,logtime,1,runid)
+ set pidlog=$zchild
+#endif 
+ kill proc
+ set dbdir="" for {
+   set dbdir=$order(dbdirs(dbdir),1,n) quit:dbdir=""
+   for j=1:1:n  {
+     job dbdir^stat.test.RandomDBRead(dbdir,runid)
+     set pid=$zchild
+     if pid>0 { set jid=$zu(67,3,pid) set proc(jid)=pid }
+   }  
+ }
+ 
+ set hstart=$h
+ W "press enter to stop test right now",!
+#if $$$RandomReadTestLogDebug=1
+  do log^stat.test.RandomDBRead(1,time,logprefix,logtime,1,runid)
+#else
+ R ">",answer:time,!
+#endif 
+ W "terminate processes",!
+ set jid="" for {
+   set jid=$order(proc(jid),1,pid) quit:jid=""
+   #;set ret=$zu(4,pid)
+   set ret=$SYSTEM.Event.Signal(pid,$LB("terminate"))
+   if ret=1 W "pid=",pid,!
+ } 
+ set hend=$h
+ set ret=$SYSTEM.Event.Signal($$SIGNAL^stat.test.RandomDBRead,$LB("stop"))
+ W "runid="_runid,!
+ W "random db read test",!
+ W "start "_$zdt(hstart,3),!
+ W "stop  "_$zdt(hend,3),!
+ do freerunid^stat.test.RandomDBRead(runid)
+ W !
+ quit
+#; unpack pButtons html into separate stat file in given directory
+pButtonsUnpack
+ W "file of pButtons html report",!
+ do get^%zreadline(">",.pButtonsHtmlReportFile,.pButtonsHtmlReportOffset,.InsertMode,"FS")
+ W !
+ W "path to unpack",!
+pButtonsUnpackDir
+ do get^%zreadline(">",.pButtonsUnpackDir,.pButtonsUnpackOffset,.InsertMode,"FS")
+ W !
+ if '##class(%File).DirectoryExists(pButtonsUnpackDir) {
+    W "Create directory?",!
+    read "Yes/No>",q,!
+    if $zcvt($E(q),"U")="Y" {
+       set ret=##class(%File).CreateDirectoryChain(pButtonsUnpackDir)
+       if +ret'=1 goto pButtonsUnpackDir
+    }
+ }
+ #;B  ; pButtons unpack
+ if $E(pButtonsUnpackDir,$L(pButtonsUnpackDir))'=fsdlm set pButtonsUnpackDir=pButtonsUnpackDir_fsdlm
+ do unpack^stat.pButtons(pButtonsHtmlReportFile,pButtonsUnpackDir)
+ quit
+msPerfmon
+ goto select^stat.stui.msperfmon
+ quit
+#;
+PSOnCPUsUserLimit
+#; design dev
+#if 0
+ W "switch it on/off, current=>",!
+ W "CPUs user limit >",!
+ W "sort by Tokens/GloRef/GlodUpd/PhyRd/none Tt/Gg/Ud/Pp/Nn current="_""_">",!
+ W "process number by top/bandwidth Tt/Bb current=>",!
+ W "bandwidth percentage current="_""_")>",!
+ W "save it permanent (restart) current "_""_">",!
+ R "press enter",action
+#endif
+ kill item
+ set item($I(item))=$LB(item,"cpuuserlimit.use","cpu user limit trigger runtime on/off","CPUuserLimitRuntime","bool",0)
+ set item($I(item))=$LB(item,"cpuuserlimit.use","cpu user limit trigger config on/off","CPUuserLimitConfig","bool",0)
+ set item($I(item))=$LB(item,"cpuuserlimit.value","CPUs user limit","CPUuserLimitValue","string",80)
+ set item($I(item))=$LB(item,"cpuuserlimit.sort","sort by Tokens/GloRef/GlodUpd/PhyRd Tt/Gg/Ud/Rr","CPUuserLimitType","string","T")
+ set item($I(item))=$LB(item,"cpuuserlimit.psntop","top processes number (empty no limit)","CPUuserLimitTop","string","")
+ set item($I(item))=$LB(item,"cpuuserlimit.psnbandwidth","bandwidth percentage (empty no limit)","CPUuserLimitPerfBandwitdh","string","")
+ set item($I(item))=$LB(item,"cpuuserlimit.apply","apply","do:PSOnCPUsUserLimitApply","menu")
+ set item($I(item))=$LB(0,"cpuuserlimit.return","return upper menu","quit","menu")
+ $$$MenuProc
+ quit
+PSOnCPUsUserLimitApply
+ new cpuuserlimit,platform,ret,type
+ set platform=$$platform^stat.lib
+ set type=$G(CPUuserLimitType,"T") set cpuuserlimit=$G(CPUuserLimitValue,80) set top=$G(CPUuserLimitTop) set limit=$G(CPUuserLimitPerfBandwitdh)
+ if platform ="linux" {
+   if $zcvt($E(type),"u")="T" {
+     if CPUuserLimitRuntime=1 {
+       set ret=$SYSTEM.Event.Signal($$DaemonSignal^stat.cpu.linux,$LB("addTrigger","allcpu","user",">",cpuuserlimit,"do DynStatToken^stat.iscps(triggervalue"_","_limit_","_top_")"))
+     }
+     elseif CPUuserLimitRuntime=0 {
+       set ret=$SYSTEM.Event.Signal($$DaemonSignal^stat.cpu.linux,$LB("delTrigger","allcpu","user",">",cpuuserlimit,"do DynStatToken^stat.iscps(triggervalue"_","_limit_","_top_")"))
+     }
+   }
+   elseif $zcvt($E(type),"u")="G" {
+     if CPUuserLimitRuntime=1 {
+       set ret=$SYSTEM.Event.Signal($$DaemonSignal^stat.cpu.linux,$LB("addTrigger","allcpu","user",">",cpuuserlimit,"do DynStatGloRef^stat.iscps(triggervalue"_","_limit_","_top_")"))
+     }
+     elseif CPUuserLimitRuntime=0 {
+        set ret=$SYSTEM.Event.Signal($$DaemonSignal^stat.cpu.linux,$LB("delTrigger","allcpu","user",">",cpuuserlimit,"do DynStatGloRef^stat.iscps(triggervalue"_","_limit_","_top_")"))
+     }
+   }
+   elseif $zcvt($E(type),"u")="U" {
+     if CPUuserLimitRuntime=1 {
+       set ret=$SYSTEM.Event.Signal($$DaemonSignal^stat.cpu.linux,$LB("addTrigger","allcpu","user",">",cpuuserlimit,"do DynStatGloUpd^stat.iscps(triggervalue"_","_limit_","_top_")"))
+     }
+     elseif CPUuserLimitRuntime=0 {
+       set ret=$SYSTEM.Event.Signal($$DaemonSignal^stat.cpu.linux,$LB("delTrigger","allcpu","user",">",cpuuserlimit,"do DynStatGloUpd^stat.iscps(triggervalue"_","_limit_","_top_")"))
+     }
+   }
+   elseif $zcvt($E(type),"u")="R" {
+     if CPUuserLimitRuntime=1 {
+       set ret=$SYSTEM.Event.Signal($$DaemonSignal^stat.cpu.linux,$LB("addTrigger","allcpu","user",">",cpuuserlimit,"do DynStatPhyRd^stat.iscps(triggervalue"_","_limit_","_top_")"))
+     }
+     elseif CPUuserLimitRuntime=0 {
+       set ret=$SYSTEM.Event.Signal($$DaemonSignal^stat.cpu.linux,$LB("addTrigger","allcpu","user",">",cpuuserlimit,"do DynStatPhyRd^stat.iscps(triggervalue"_","_limit_","_top_")"))
+     }
+   }
+ }
+#if 0 
+ elseif platform = "winnt" {
+ }
+#endif
+ else {
+   W "platform "_platform_"is not supported",!
+ }
+ set CPUuserLimitRuntimeOld=CPUuserLimitRuntime
+ quit
+ #; load csp server statistics
+importCspServerLog
+ if $D(^rOBJ("%zreadline")) {
+   do get^%zreadline("csp server log>",.importCspServerLog,.importCspServerLogOffset,.InsertMode,"FS")
+   if $G(importCspServerLog)="" || '##class(%File).Exists(importCspServerLog) W !,"file not found",! quit
+   W !,"clean old stat Yy/Nn>"
+   R action
+   W !
+   if "Yy1"[$E(action) { set clearold=1 }
+   else { set clearold=0 }
+ }
+ else { B  quit } ; missed implementation
+ if clearold=1 do ##class(stat.cspAccessLog).%KillExtent()
+ #;try {
+   set ret=##class(stat.cspAccessLog).LoadFromCSPServerLog(.importCspServerLog)
+   if ret<0 W "failure open file",!
+ #;} catch e { W "$ZE="_$ZE }
+ quit
+importWebGWLog
+ W "unimplemented yet",!
+ quit
+#; transform WebGW log to performance CSV
+WebGWtoPerfCSV
+ if $D(^rOBJ("%zreadline")) {
+WebGWtoPerfCSV1
+   do get^%zreadline("WebGW log>",.WebGWLog,.WebLogOffset,.InsertMode,"FS")
+   if '##class(%File).Exists(WebGWLog) W !,"file not found",! goto WebGWtoPerfCSV1
+   W !
+   W "do you want generate perf csv file?",!
+   R "Yy1/Nn0>",answer W !
+   if "Yy1"[answer {
+     set doperfcsv=1
+     do get^%zreadline("perf csv>",.PerfCSV,.PerfCSVOffset,.InsertMode,"FS")
+     W !
+   }
+   else { W "doesn't generate perf csv",! set doperfcsv=0 }
+   W "do you want load perf in db?",!
+   R "Yy1/Nn0>",answer
+   W !
+   if "Yy1"[answer { 
+      set dbload=1 kill ^|"SYSSTAT"|stat.webgwperf.d kill ^|"SYSSTAT"|stat.webgwperf.id
+   }
+   else {
+     W "db load no",!
+     set dbload=0
+   }
+   if doperfcsv=0 && (dbload=0 ) W "nothing to do",! quit
+   if doperfcsv=1 {
+      set ret=$$perfCSV^stat.webgwlog(WebGWLog,PerfCSV,,,dbload)
+   }
+   else {
+     set ret=$$perfCSV^stat.webgwlog(WebGWLog,"",,,dbload)
+   }
+   if $LG(ret,1)=1 { W "done",! }
+   elseif$LG(ret,1)=0 { W "error "_$LG(ret,2) }
+ }
+ else { B  } ; unimplemented
+ quit

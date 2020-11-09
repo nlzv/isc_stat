@@ -1,0 +1,609 @@
+ROUTINE stat.monitor
+#include stat
+
+ #; master daemon
+ #; keeps controlled daemons proc(daemon)=$LB(jid,pid[,usectr]) 
+ quit
+ 
+run()
+ $$$PROCMODTRAP
+ $$$NOJRN
+ set boot=+$G(^SYS("stat","boot"),0)
+ try { set jrn=$$SetJournal^%SYS.NOJRN(0) } catch {}
+ #; autostart is checked in startup^stat
+#if 0 
+ set run=$G(^SYS("stat"),0) 
+ if run=0 do $zu(9,"","stat monitor is disabaled set ^SYS(""stat"")=1") quit
+#endif 
+ #; absolutely necessary settings of log dir 
+ set logdir=$$logdir^stat.lib
+ if logdir="" do $zu(9,"","stat monitor failed to run log directory is not set run d ^stat to configure") quit 
+ #; check whether file might be created there
+ 
+ set logdircheck=$$checklogdir()
+ if $P(logdircheck,",",1)'=1 {
+    do $zu(9,"","stat monitor terminated log dir problem "_$E(3,$L(logdircheck)))
+    quit
+ }
+ 
+ set lock=$$lock()
+ #; second instance is not allowed
+ lock +@lock:0
+ if $test=0 { 
+   do $zu(9,"","stat monitor exit failure to lock ^SYS(""stat.monitor"")")
+   quit 
+ } 
+ 
+ set monevent="^stat.monitor"
+ set retmonevent=$SYSTEM.Event.Create(monevent)
+ if retmonevent'=1 {
+   lock -^SYS("stat.monitor")
+   do $zu(9,"","stat monitor exit abnormally, failure to create signal "_monevent)
+   quit
+ }   
+ 
+ merge %debug=^SYS("stat","debug")
+ set CtlGlo=$$CtlGlo^stat.lib
+ set selfjid=$zu(61)
+ set pteuc=$$pteuc^stat.lib(selfjid)
+ set ^SYS("stat","proc",selfjid)=$LB(selfjid,$P($job,":",1),pteuc,"master")
+#;set ^SYS("stat","proc",selfjid)=$LB(selfjid,$job,$$$SelfPteuc,"master")
+ #; optional login as user
+ set user=$G(@CtlGlo@("master","user"))
+ set password=$G(@CtlGlo@("master","password"))
+ set login=$G(@CtlGlo@("master","login"),0)
+ if login=1 {
+   set ret=$SYSTEM.Security.Login(user,password)
+   if ret=1 { set @CtlGlo@("boot")=0 set boot=0 }
+   else { $$$ConLog("stat master login failed user="_user) }
+ }
+ 
+ #; interval to collect statistic default 1 seconds
+ set statinterval=$G(^SYS("stat","interval"),1)
+ #;do $zu(9,"stat monitor is started with interval "_statinterval)
+#if 1
+ set platform=$$platform^stat.lib
+#else
+ set zvplatform=$SYSTEM.Version.GetPlatform()
+ 
+ set platform=""
+ set i=$F($zcvt(zvplatform,"u"),"LINUX")  if i { set platform="linux" }
+ if platform="" && ($SYSTEM.Version.GetOS()="Windows") { set platform="winnt" }
+#endif
+ #; time to midnight
+ set h=$horolog
+ set t=86400-$P(h,",",2)
+ set delay=$G(^SYS("stat","interval"),1)
+ set count=t\delay 
+ 
+ kill proc
+ 
+ #; default always collect cpuall stat
+ set cpu=$G(^SYS("stat","cpu"),1) if cpu {
+   if platform="linux" { try { do start^stat.cpu.linux() } catch {} }
+ }
+ set diskstat=$G(^SYS("stat","disk"),0) if diskstat {
+   if platform="linux" { try { do start^stat.disk.linux() } catch {} }
+ }
+ if platform="winnt" {
+#; new version
+   if $D(^rOBJ("stat.winnt.perf")) { if $G(@CtlGlo@("msperf","run"),0)=1 { do start^stat.winnt.perf } }
+#; old version
+   elseif $D(^rOBJ("stat.winnt.typeperf")) { if cpu || diskstat { do start^stat.winnt.typeperf } }
+ }
+ #; default always collect mgstat
+ 
+ if ((platform="linux")||(platform="aix")) && ($G(^SYS("stat","vmstat"),0)=1) { do start^stat.unix.vmstat }
+ if $G(@$$CtlGlo^stat.lib@("iostat")) {
+   if platform="linux" { do start^stat.iostat.linux }
+   elseif platform="aix" { do start^stat.iostat.aix }
+ }
+ set mgstat=$G(^SYS("stat","mgstat"),1) if mgstat {
+    job log^stat.mgstat(delay,count)
+    set pid=$zchild
+    set jid=$zu(67,3,pid)
+    set pteuc=$$usectr^stat.lib(jid)
+    set proc("mgstat")=$LB(jid,pid,pteuc,"mgstat")
+ }
+ 
+ set cconlogmon=$G(^SYS("stat","cconlogmon"),0) if cconlogmon {
+   job scan^stat.cconlogmon("","",1)
+   set pid=$zchild,jid=$zu(67,3,pid),proc("cconlogmon")=$LB(jid,pid)
+   set conlogmonevent=$$DaemonEvent^stat.cconlogmon()
+ }
+ set lockstat=$G(^SYS("stat","lockstat"),0) if lockstat=1 { do start^stat.lock() }
+ set jdstat=$G(^SYS("stat","jdstat"),0) if jdstat=1 { do start^stat.journal }
+ set ecpclistat=$G(^SYS("stat","ecpclistat"),0) if ecpclistat=1 { do start^stat.ecp.cli }
+ set ecpsrvstat=$G(^SYS("stat","ecpsrvstat"),0) if ecpsrvstat=1 { do start^stat.ecp.srv }
+ set cstat=$G(^SYS("stat","cstat"),0) if cstat=1 { do start^stat.cstat }
+ set iscpsstat=$G(^SYS("stat","iscpsstat"),0) if iscpsstat=1 { do start^stat.iscps }
+ set seizestat=$G(^SYS("stat","seizestat"),0) if seizestat=1 { do start^stat.seize }
+ 
+ set emaildaemon=$G(@CtlGlo@("email"),0)
+ if emaildaemon=1 { do start^stat.email(1) }
+ 
+ set iscpscpuuserlimit=$G(^SYS("stat","iscps.cpuuserlimit","use"),0)
+ if iscpscpuuserlimit=1 {
+   set cpuuserlimit=$G(^SYS("stat","cpuuser","limit"))
+   set cpuusertop=$G(^SYS("stat","cpuuser","top"))
+   if cpuuserlimit>0&&(cpuuserlimit'>100) {
+      do DynStatTokenOnUserCPUs^stat.iscps(,top,cpuuserlimit)
+   } 
+ }
+ if $D(^rOBJ("stat.csp.0"))&&$D(^rOBJ("stat.csp.1")) try { set ret=##class(stat.csp).startup() } catch { $$$ConLog($ZNAME_" $ZE="_$ZE) }
+ 
+ if $G(%debug("daemon"),1) do $zu(9,"","stat monitor started user="_$username_",roles={"_$roles_"}")
+ set hpast=$h
+ 
+ #; working loop
+ for {
+    
+    #; wait signals 
+    set ret=$SYSTEM.Event.WaitMsg("^stat.monitor",1)
+    if $LI(ret)=1 {
+      set msg=$LI(ret,2)
+      set cmd=$LG(msg,1)
+#; this is old variant stop all daemons including master/monitor process
+      if cmd="stop" {
+         set reason=$LG(msg,2)
+         set exitreason=reason
+         set StopTimeout=$LG(msg,3) 
+#; terminate all stat processes
+         do $zu(9,"","stat monitor exiting reason "_reason)
+         quit
+      }
+      elseif cmd="usectr" {
+        set daemon=$LG(msg,2)
+        set usectr=$LG(msg,3)
+        if daemon="cpustat" { set $LI(proc("cpu"),3)=usectr }
+        elseif daemon="mgstat" { set $LI(proc("mgstat"),3)=usectr }
+      }
+      else { do DaemonEventHandler }
+
+#; if cpu over limit start perfmon monitor 
+#; if there is no current one running
+
+    }
+
+    #; at midnight local time switch log
+    set h=$h
+    
+    if $P(hpast,",",1)+1=$P(h,",",1) {
+       if +$G(%debug("switch log"),0) do $zu(9,"",$ZNAME_" switch logs")
+       do switchlogs(hpast)
+    }
+    set hpast=h
+ } // end of working cycle  
+runexit
+ set locks=""
+ if +$G(%debug("daemon"),0)=1 do $zu(9,"",$$conlogname()_" stop stat daemons")
+#if 1
+ if cpu=1 {
+   if platform="linux" { try { do stop^stat.cpu.linux(reason) } catch e {} }
+ }
+#else 
+ try { if cpu=1 set retstopcpu=$$stopcpu(reason) } catch e { do $zu(9,"",$$conlogname_ " stop cpustat $ZE="_e.AsSystemError()) }
+#endif 
+ try { if diskstat=1 if platform="linux" { do stop^stat.disk.linux} } catch e {}
+ if platform="winnt" {
+   try {
+     if $D(^rOBJ("stat.winnt.perf")) { do stop^stat.winnt.perf }
+     elseif $D(^rOBJ("stat.winnt.typeperf")) { if cpu=1 || (diskstat=1) { do stop^stat.winnt.typeperf(reason) } }
+   }
+   catch e { do $zu(9,"",$$conlogname_ " stop stat.winnt $ZE="_e.AsSystemError()) }
+ }
+ try { if mgstat=1 set retstopmgstat=$$stopmgstat() } catch e {}
+ try { if cconlogmon=1 set retcconlogmon=$$stop^stat.cconlogmon(reason) } catch e {}
+ try { if lockstat=1 do stop^stat.lock } catch e {}
+ try { if $G(jdstat,0)=1 do stop^stat.journal } catch e {}
+ try { if $G(ecpclistat,0)=1 do stop^stat.ecp.cli } catch e {}
+ try { if $G(ecpsrvstat,0)=1 do stop^stat.ecp.srv } catch e {}
+ try { if $G(cstat,0)=1 do stop^stat.cstat } catch e {}
+ try { if $G(iscpsstat,0)=1 do stop^stat.iscps } catch e {}
+ try { if $G(seizestat,0)=1 do stop^stat.seize } catch e {}
+ try { if $G(proc($$DaemonName^stat.unix.vmstat))'="" do stop^stat.unix.vmstat } catch {}
+ if platform="linux" { if $G(proc($$DaemonName^stat.iostat.linux))'="" try { do stop^stat.iostat.linux } catch {} }
+ elseif platform="aix" { if $G(proc($$DaemonName^stat.iostat.aix))'="" try { do stop^stat.iostat.aix } catch {} }
+ set pi=$G(proc("strace.dw")) if pi'="" {
+   set event=$LI(pi,4)
+#; terminate rooted daemon only if exitreason="shutdown"
+   set exitreason=$G(exitreason,"unknown")
+   if exitreason="shutdown" {
+     set locks=locks_","_$$DaemonLock^stat.strace.dw()
+     do stop^stat.strace.dw(exitreason)
+   }
+ }
+ 
+ 
+ set pi=$G(proc("email")) if pi'="" {
+   set exitreason=$G(exitreason,"unknown")
+   #;set locks=locks_","_$$DaemonLock^stat.email
+   do stop^stat.email(exitreason)
+ }
+ 
+ if $D(^rOBJ("stat.csp.0"))&&$D(^rOBJ("stat.csp.1")) try { set ret=##class(stat.csp).shutdown() } catch { $$$ConLog($ZNAME_" $ZE="_$ZE) }
+ #;? wait daemons terminated by daemon signal/event
+ set waitcnt=0
+ 
+ #; master wait halt ack from halt process 
+ 
+ #; if still there is process then kill them
+ 
+ set retdelmonevent=$SYSTEM.Event.Delete(monevent)
+ kill ^SYS("stat","proc",$zu(61))
+ 
+#; wait a 3 seconds for  empty ctlglo process table
+ for i=1:1:3 {
+   hang 1
+   set jid=$O(^SYS("stat","proc",""))
+   quit:jid=""
+ }
+ 
+ do $zu(9,"","stat monitor exited reason "_$G(reason))
+ lock -@lock
+ quit 
+DaemonError
+ set %ErrorCount=+$G(%ErrorCount,0)+1
+ if $G(%ErrorCount,0)>1 set $ztrap=""
+ do $zu(9,"",$zname_" exit $ZE="_$ZE)
+ if %ErrorCount=1 set reason="error" goto runexit
+ quit
+ #; moved to ^stat  
+startup
+ job run^stat.monitor
+ set pid=$zchild 
+ quit
+ #; moved to ^stat
+shutdown
+ set ret=$$stop("shutdown")
+ quit
+ 
+ #;
+start
+ job run^stat.monitor
+ quit
+ 
+ #; request to stop stat monitor 
+ #; force=1 terminate process by routine name
+stop(reason="user",force=0,timeout="") public {
+ set $ztrap="stope"
+ #; force termination scan proces table and kill all processes running match routines
+ if force {
+   set kills="" 
+   set selfjid=$zu(61)
+   set maxjid=$V($ZU(40,2,118),-2,4)
+   for jid=0:1:maxjid {
+       set pid=$zu(61,17,jid) if pid'=0 {
+       set rtn=$zu(61,5,jid)
+       set ns=$zu(61,6,jid)
+       if ns="%SYS" && ( $E(rtn,1,5)="stat." || ( $E(rtn,1,6)="mgstat")  ) && ( selfjid'=jid ) {
+         set ret=$zu(4,pid) 
+         set kills=kills_$C(10)_" "_jid_":"_pid_":"_rtn_":"_ret
+         kill ^SYS("stat","proc",jid)
+       }  
+     } 
+   }
+#; clean daemons events 
+   set event=$$DaemonEvent() if $SYSTEM.Event.Defined(event) {
+     set ret=$SYSTEM.Event.Delete(event) 
+     set kills=kills_$C(10)_" Delete event "_event
+   }
+#; if there are actions report about that
+   if kills'="" do $zu(9,"","stat force termination"_kills)
+   quit $LB(1,kills)
+ }
+ set ret=$SYSTEM.Event.Signal("^stat.monitor",$LB("stop",reason,timeout))
+ #; kill stat processes
+ if ret=1 {
+   lock +^SYS("stat.monitor"):5
+   if $test {
+      lock -^SYS("stat.monitor"):5
+#; wait other daemons
+      quit $LB(1)
+   }
+   else { do $zu(9,"","stat master exit by probe lock timeout") }
+ }
+#; no daemon event 
+ else {
+   do $zu(9,"",$zname_" send stop signal to "_$$conlogname()_" failed") 
+   kill procmaster do ctlgloproc^stat.lib("master",.procmaster,.n)
+   if n=0 {
+   } 
+   elseif n=1 {
+   }
+   else {
+   }
+ }
+ 
+#if 0
+ do stopcpu(reason)
+ set pi=$G(^SYS("stat","mgstat","pid"),"")
+ if pi'="" {
+   set $LB(jid,pid)=pi
+   set rtn=$zu(61,5,jid)
+   if $F(rtn,"mgstat")>0 {
+      do $zu(4,pid)
+   } 
+ }
+#endif
+ quit $LB(0)
+stope
+ set $ztrap=""
+ do $zu(9,"",$ZNAME_" stop entry $ZE="_$ZE)
+ quit $LB(0,"$ZE="_$ZE)
+}
+#; to do move to ^stat
+stopwait() public {
+ lock +^SYS("stat.monitor"):5
+ if $test {
+   lock -^SYS("stat.monitor"):5
+   quit $LB(1)
+ }
+ quit $LB(0)
+}
+ #; msg  
+ #; cmd = $LG(msg,1) 
+ #; new format $LB(cmd,sourcejid,command parameters) might be used to get answer
+DaemonEventHandler
+ set sjid=$LG(msg,2)
+ do $case(cmd,"procstart":ehProcStart,"procstop":ehProcEnd,"procdmn":dehGetDaemon,
+    :ehUkn)
+ quit
+ #; procstart signal handler 
+ #; $LG(msg,3)=pid,$LG(msg,4)=pteuc process table entry usage count
+ehProcStart
+ set $LB(,jid,pid,pteuc,daemon,event)=msg
+ if daemon'="" { set proc(daemon)=$LB(jid,pid,pteuc,event) } else { $$$ConLog($ZNAME_" event "_cmd_" empty daemon name") }
+ quit 
+ #; send event procstart to master/monitor process
+ #; ? what event is for 
+procstart(jid,pid,pteuc,daemon,event="") public {
+ set ret=$SYSTEM.Event.Signal($$DaemonEvent(),$LB("procstart",jid,$P(pid,":",1),pteuc,daemon,event))
+}
+
+ehProcEnd
+ set daemon=$LG(msg,5)
+ if daemon'="" kill proc(daemon)
+ quit
+procstop(jid,pid,pteuic,daemon) public {
+ set ret=$SYSTEM.Event.Signal($$DaemonEvent(),$LB("procstop",jid,$P(pid,":",1),pteuc,daemon))
+}  
+
+#; query master about daemon by name
+dehGetDaemon
+ set jid=$LG(msg,2)
+ set devent=$LG(msg,3)
+ set d=$G(proc(daemon))
+ if d'="" { set pi=$LG(d,1,3) }
+ else {
+   set pi=$LB(,,,)
+ }
+ set ret=$SYSTEM.Event.Signal(devent,$LB(cmd,$$$SelfJid,,)_pi)
+ quit
+ehUkn
+ quit
+ 
+
+killproc(jdata) public
+ quit
+ #; unused, now use stop^stat.cpu.<platform> 
+stopcpu(reason="user") [proc] public {
+ set fret=$LB(0,"unknown") 
+ if +$G(%debug("daemon"),0)=1 do $zu(9,"",$$conlogname()_" stopcpu begin") 
+ set ret=$SYSTEM.Event.Signal("^stat.cpu",$LB("stop",reason))
+ if +$G(%debug("daemon"),0)=1 { do $zu(9,"",$$conlogname()_" stop cpustat by event ret="_ret) }  
+
+ if ret=1 { set fret=$LB(1,"byevent") }
+ else {
+#; no daemon event
+    set pi=$G(proc("cpustat")) if pi'="" {
+      set $LB(jid,pid,usectr1)=pi
+      set usectr2=$$usectr^stat.lib(jid)
+      if +$G(%debug("daemon"),0)=1 do $zu(9,"",$$conlogname()_" stopcpu jid="_jid_",pid="_pid_",pteuc="_$G(usectr1)_",now pteuc="_$G(usectr2)_",equal="_(+usectr1=+usectr2))
+      if +usectr1=+usectr2 {
+        set ret=$zu(4,pid)
+        set msg="kill cpustat jid="_jid_",pid="_pid_",pteuc="_$G(usectr1)_",ret="_ret
+        if +$G(%debug("daemon"),0)=1 do $zu(9,"",$$conlogname()_" "_msg)
+        if ret=1 { set fret=$LB(1,"killproc") }
+        else  { set fret=$LB(0,"killproc") }
+      }  
+      else { set fret=$LB(1,"no cpustat proc") }
+   }
+ }
+ if +$G(%debug("daemon"),0)=1 { do $zu(9,"",$$conlogname()_" stopcpu end") }
+ quit fret
+}
+ #; 
+stopmgstat() [proc] public {
+ if +$G(%debug("daemon"),0)=1 do $zu(9,"",$$conlogname()_" stopmgstat begin") 
+ set pi=$G(proc("mgstat")) if pi'="" {
+ set $LB(jid,pid,usectr1)=pi
+ set usectr2=$$usectr^stat.lib(jid) 
+ if +$G(%debug("daemon"),0)=1 do $zu(9,"",$$conlogname()_" stopmgstat jid="_jid_",pid="_pid_",pteuc="_$G(usectr1)_",now pteuc="_$G(usectr2)_",equal="_(+usectr1=+usectr2))
+#; verify it still that process
+ if +usectr1=+usectr2 {
+   set ret=$zu(4,pid)
+   set msg="kill mgstat jid="_jid_",pid="_pid_",pteuc="_$G(usectr1)_",ret="_ret
+   kill proc("mgstat")
+   kill ^SYS("stat","proc",jid)
+   if +$G(%debug("daemon"),0)=1 do $zu(9,"",$$conlogname()_" "_msg)
+   set ret=$LB(1,msg)
+ }
+ else {
+   set msg="mgstat is not that process"
+   if +$G(%debug("daemon"),0)=1 do $zu(9,"",$$conlogname()_" stopmgstat "_msg)
+   set ret=$LB(0,msg)
+ }
+ if +$G(%debug("daemon"),0)=1 do $zu(9,"",$$conlogname()_" stopmgstat end") quit ret }
+ quit $LB(0,"no proc")
+}
+ #; general code for daemon termination= request daemon process to exit
+ #; daemon daemon name
+ #; vars proc,reason
+stopDaemon(daemon)
+ #; get type of daemon to stop terminate from COS, by event
+ quit
+stopDaemonByKill
+ quit
+stopDaemonBySignal 
+ quit
+
+ #; check log dir is ok
+checklogdir() [fsdlm,logdir] public {
+ set io=$io 
+ set installdir=$SYSTEM.Util.InstallDirectory()
+ set fsdlm=$E(installdir,$L(installdir))
+ if $E(logdir,$L(logdir))'=fsdlm { set logdir=logdir_fsdlm}
+ set logtest=logdir_"test"
+ open logtest:("NWS"):1
+ if $test'=1 {
+   set ret="0,error create file in log dir "_logdir quit ret
+ }
+ try {
+    use logtest W "test",!
+ }
+ catch e {
+   set ret="0,error to write into file "_logtest
+   goto close
+ }
+ set ret=1
+close 
+ close logtest
+ use io
+ set retdel=##class(%File).Delete(logtest)
+ quit ret
+} 
+ #; switch logs
+switchlogs(hpast)
+ if $G(proc("mgstat"))'="" {
+   set $LB(jid,pid,usectr1)=proc("mgstat")
+   set usectr2=$$usectr^stat.lib(jid) 
+#if 1
+   if usectr1=usectr2 {
+#else
+   #;if pid=$zu(61,17,jid) && ( $F($zu(61,5,jid),"mgstat")) {
+#endif
+     set ret=$zu(4,pid)
+     if +$G(%debug("switch log"),0) do $zu(9,"",$ZNAME_" switch log kill mgstat jid="_jid_",pid="_pid_",ret="_ret)
+   }  
+   else {
+     if +$G(%debug("switch log"),0) do $zu(9,"",$$conlogname_" switch log not found that mgstat jid="_jid_",pid="_pid_",pteuc="_usectr1_",pteuc.now="_usectr2) 
+   }
+   set count=86400-$P($h,",",2)\delay
+   kill proc("mgstat")
+   kill ^SYS("stat","proc",jid)
+   job log^stat.mgstat(delay,count)
+   set pid=$ZCHILD
+   if pid>0 { 
+     set jid=$zu(67,3,pid)
+#; if job start fail?
+     if jid>0 {
+       set proc("mgstat")=$LB(jid,pid,$$usectr^stat.lib(jid))
+       if +$G(%debug("switch log"),0) do $zu(9,"",$ZNAME_" switch log run mgstat jid="_jid_",pid="_pid)
+     }
+     else { do $zu(9,"",$$conlogname_" switch log failure find job index by pid="_pid_" mgstat terminated?") }
+   }
+   else {
+     do $zu(9,"",$$conlogname_" switch log fails to job mgstat")  
+   }
+   
+ }
+ #; send signal to switch log to cpu stat
+#if 1
+ if platform="linux" { do switchlog^stat.cpu.linux }
+#else
+ set log=logdir_"cpu_"_$tr($zdt($h,3)," :-","___")_"_"_delay_"x"_count_".log" 
+ set ret=$SYSTEM.Event.Signal("^stat.cpu",$LB("switch log",log))
+#endif
+ if $G(proc("strace.master"))'="" {
+   set tevent=$$event^stat.strace()
+   set ret=$SYSTEM.Event.Signal(tevent,$LB("switch log",log))
+ }
+ if $G(proc("diskstat"))'="" try { if platform="linux" { do switchlog^stat.disk.linux } } catch {}
+ 
+ if platform="winnt" {
+   do $zu(9,"",$ZNAME_" ms perf switch log")
+   if $D(^rOBJ("stat.winnt.perf")) {
+     try { 
+       if $G(proc($$DaemonName^stat.winnt.perf))'="" {
+         do switchlog^stat.winnt.perf
+       }
+     } catch {
+       #;do $zu(9,"",$ZNAME_" ms perf switch log $ZE="_$ZE)
+     }
+   }
+   elseif $D(^rOBJ("stat.winnt.typeperf")) {
+     if $G(cpu,0)||$G(diskstat,0) try { do switchlog^stat.winnt.typeperf } catch e {}
+   }
+ }
+ if $G(proc("lockstat"))'="" try { do switchlog^stat.lock } catch {}
+ if $G(proc("jdstat"))'="" try { do switchlog^stat.journal } catch {}
+ if $G(proc("ecpclistat"))'="" try { do switchlog^stat.ecp.cli } catch {}
+ if $G(proc("ecpsrvstat"))'="" try { do switchlog^stat.ecp.srv } catch {}
+ try { if $G(proc($$DaemonName^stat.cstat))'="" do switchlog^stat.cstat } catch {}
+ try { if $G(proc($$DaemonName^stat.iscps))'="" do switchlog^stat.iscps } catch {}
+ try { if $G(proc($$DaemonName^stat.seize))'="" do switchlog^stat.seize } catch {}
+ try { if $G(proc($$DaemonName^stat.unix.vmstat))'="" do switchlog^stat.unix.vmstat } catch {}
+ if $G(proc("iostat"))'="" {  try {
+   if platform="linux" { do switchlog^stat.iostat.linux }
+   elseif platform="aix" { do switchlog^stat.iostat.aix }
+ } catch {}}
+#if 1
+ if $G(proc("strace.dw"))'="" { try { do switchlog^stat.strace.dw } catch {} }
+#else
+ if $G(proc("strace.dw"))'="" {
+   set tevent=$$DaemonEvent^stat.strace.dw()
+   set ret=$SYSTEM.Event.Signal(tevent,$LB("switch log",log))
+ }
+#endif
+ 
+ #; here we must wait switch log completed
+ hang 10
+ #; start pack logs & cleanup 
+ job run^stat.pack($P(hpast,",",1))
+ #; job switchlogjob($P(hpast,",",1))
+ quit
+
+#; 2nd variant to job run^stat.pack 
+#; date to pack
+switchlogjob(hdate) 
+ do run^stat.pack($P(hpast,",",1),,logdir)
+ #;do run^stat.cleanup
+ #;do run^stat.sendpacklog
+quit
+
+DaemonEvent() public {
+ quit "^"_$ZNAME
+}
+
+lock() public {
+ quit "^"_$ZNAME
+ #;quit $name(^SYS("stat.monitor")) 
+}
+
+
+DeleteEvent() public {
+ set event=$$DaemonEvent()
+ set ret=$SYSTEM.Event.Delete(event)
+}
+
+#; based on @CtlGlo@("proc") process table
+CheckRunning(CleanEvent=0) public {
+ set n=0 
+ set CtlGlo=$$CtlGlo^stat
+ set jid="" for  { 
+    set jid=$order(@CtlGlo@("proc",jid),1,pi) quit:jid="" 
+    if $LG(pi,4)="master" {
+      set $LB(jid,pid,pteuc)=pi
+      if $$CheckProc^stat.lib(jid,pid,pteuc) { set n=n+1 }
+      else { kill @CtlGlo@("proc",jid) }
+    }
+ }  
+ if CleanupEvent && n=0 && $SYSTEM.Event.Defined(DaemonEvent) { do $SYSTEM.Event.Delete(DaemonEvent) }
+ quit n
+}
+
+conlogname() public {
+ quit "stat master"
+}
+

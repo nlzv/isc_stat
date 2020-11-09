@@ -1,0 +1,289 @@
+ROUTINE stat.iostat.aix
+#; iostat specific for aix
+#include stat
+log(delay="",count="",log="",statmon=0)
+ $$$PROCMODTRAP
+ set platformtype=$$platformtype^stat.lib
+ set platform=$$platform^stat.lib
+ if platformtype="unix" { do sumask^stat.lib("rw-rw-r--") }
+ set io=$io set stop=0 set NL=$C(10) set expense=0
+ 
+ if statmon=1 {
+   merge %debug=^SYS("stat","debug")
+   set daemon=$$DaemonName
+   set DaemonLock=$$DaemonLock
+   lock +@DaemonLock:0.1 if $test'=1 $$$ConLog(daemon_" can acquire daemon lock "_DaemonLock) goto runexit
+   set DaemonSignal=$$DaemonSignal
+   set retSignal=$SYSTEM.Event.Create(DaemonSignal)
+   if retSignal'=1 {
+     $$$ConLog(daemon_" terminated: failure to create daemon signal "_DaemonSignal)
+     set reason="error craete daemon event"
+     goto runexit
+   }
+#; register itself in CtlGlo process table
+   do CtlGloSelfProcStart^stat.lib(daemon)
+#; send signal to master it registers daemon in it proc("daemon") var
+   do procstart^stat.monitor($$$SelfJid,$J,$$$SelfPteuc,daemon)
+   set MasterSignal=$$DaemonEvent^stat.monitor
+   set logdir=$$logdir^stat.lib
+   set CtlGlo=$$CtlGlo^stat.lib
+   if delay="" { set delay=$G(@CtlGlo@("interval"),1) }
+   set hinit=$h set day=$zd(hinit,3)
+   if log="" { set hinit=$h set log=$$log^stat.lib(logdir,$$logprefix,hinit,delay,.logcount) }
+ }
+ else {
+   if log="" { set log=$io set NL=$C(13,10) }
+   set day=$zd($h,3)
+ }
+ set oldeof=$SYSTEM.Process.SetZEOF(1)
+ do tsTransformInit
+ if io'=log { open log:("NWS"):1 if $test=0 { $$$ConLog($ZNAME_" create file error "_log) goto runexit } }
+ do cmdinit(delay,count) if stop=1 { goto runexit }
+ do readhdr
+ use log W "ts/disk,"_statmetrics,!
+ set istat=0
+ do loop
+runexit
+ use io
+#; SIGTERM to iostat ?
+ if $G(cmddev)'="" { try {
+   use cmddev for { read x:0.01 if $test=0 { quit} }
+   set dt=$zh close cmddev set dt=$zh-dt
+   $$$ConLog($ZNAME_" close cmddev timing="_dt)
+ } catch {} }
+ if io'=log { try {
+   set dt=$zh close log set dt=$zh-dt
+   $$$ConLog($ZNAME_" close log timing="_dt)
+ }catch{} }
+ if statmon=1 {
+   do CtlGloSelfProcStop^stat.lib(daemon)
+   do procstop^stat.monitor($$$SelfJid,$J,$$$SelfPteuc,daemon)
+   set ret=$SYSTEM.Event.Delete(DaemonSignal)
+   try { lock -@DaemonLock } catch {}
+ }
+ quit
+DaemonError
+ set $ztrap="" do $zu(9,"",$ZNAME_" exit $ZE="_$ZE) goto runexit
+loop
+ for {
+   if statmon=1&&(istat>0) {
+#;?aix has 1 sec precision?
+     #;set twait=delay-(2*dtdelay) if twait<0 { set twait=0 }
+     set twait=delay
+     set t=$zh set retSignal=$SYSTEM.Event.WaitMsg(DaemonSignal,twait) set dtwait=$zh-t
+     if $LG(retSignal,1)=1 { set msg=$LG(retSignal,2) do SignalHandler if stop=1 quit }
+   }
+   
+   use cmddev
+   set logtx1="" set logtx2=""
+#; read headers
+   read rechdr1 //empty line loop
+   set zh0=$zh
+   read rechdr2 //Disks:...
+   read rechdr3 //line
+   read rechdr4 //%tm ...
+   read rechdr5 //act...
+   for {
+     use cmddev read tx:0.1 if $test=0 { quit} if $zeof=-1 { set stop=1 quit }
+     set tx2=$zstrip(tx,"<=>"," ","") set tx3=$TR(tx2," ",",")
+     set n=$L(tx3,",")-1 set tx4=$P(tx3,",",1) for i=2:1:n set v=$P(tx3,",",i) set pf=$E(v,$L(v)) set v=+v if "KMG"'[pf { set pf="" } set tx4=tx4_","_$case(v=0,1:"",:v_pf)
+     set ts=day_" "_$P(tx3,",",n+1)
+     if logtx1="" set logtx1=ts
+     if ts'=logtx1 $$$ConLog($ZNAME_" time diff in one record 1st time="_logtx1_" disk "_$P(tx4,",",1)_" time="_ts)
+     set logtx2=logtx2_","_tx4_NL
+   }
+   set dt=$zh-zh0
+   use log W logtx1_$case(expense,1:","_dt,:"")_NL_logtx2
+   set istat=istat+1
+   if +$G(count)>0 && ( istat '< count) quit
+   set dtdelay=$zh-zh0
+ }
+ quit
+#; -p reports paritions on disk
+cmdinit(delay,count)
+ set envLANG=$SYSTEM.Util.GetEnviron("LANG")
+ set envCounty=$P(envLANG,"_",2)
+ set envLang=$P(envLANG,"_",1)
+ set cmddev="|CPIPE|iostat"
+ set dt=$zh
+ do NoShellNewProc^stat.lib(.isnoshell)
+ set dt=$zh-dt
+ W "No Shell feature timing "_dt,!
+ #;set iostatopt="DT"
+ set iostatopt="DTl"
+ set drivesarg=""
+ if isnoshell=1 {
+   set cmd="/usr/bin/iostat"
+   kill args
+   set args($I(args))="-"_iostatopt
+   set args($I(args))=1
+   set args($I(args))=1
+   #;zw args
+   open cmddev:(/COMMAND=cmd:/ARGS=args...):1
+   if $test=0 set stop=1 quit
+   use cmddev
+ }
+ else {
+   set cmd="iostat -"_iostatopt_" "_1_" "_1
+   open cmddev:(cmd:"Q"):1
+   if $test=0 set stop=1 quit
+   use cmddev
+ }
+#; normal format
+#;iostat -DT 1 1
+#;
+#;System configuration: lcpu=32 drives=1 paths=1 vdisks=1
+#;
+#;hdisk1         xfer:  %tm_act      bps      tps      bread      bwrtn      time
+#;                         0.0      0.0      0.0        0.0        0.0   11:56:12
+#;               read:      rps  avgserv  minserv  maxserv   timeouts      fails
+#;                         0.0      0.0      0.0      0.0           0          0
+#;              write:      wps  avgserv  minserv  maxserv   timeouts      fails
+#;                         0.0      0.0      0.0      0.0           0          0
+#;              queue:  avgtime  mintime  maxtime  avgwqsz    avgsqsz     sqfull
+#;                         0.0      0.0      0.0      0.0        0.0         0.0
+#;--------------------------------------------------------------------------------
+ if (iostatopt["D")&&(iostatopt["T")&&(iostatopt'["l") {
+ }
+
+#; long format
+#;iostat -DTl 1 1
+#;
+#;System configuration: lcpu=32 drives=1 paths=1 vdisks=1
+#;
+#;Disks:                     xfers                                read                                write                                  queue                    time
+#;-------------- -------------------------------- ------------------------------------ ------------------------------------ -------------------------------------- ---------
+#;                 %tm    bps   tps  bread  bwrtn   rps    avg    min    max time fail   wps    avg    min    max time fail    avg    min    max   avg   avg  serv
+#;                 act                                    serv   serv   serv outs              serv   serv   serv outs        time   time   time  wqsz  sqsz qfull
+#;hdisk1           0.0   0.0    0.0   0.0    0.0    0.0   0.0    0.0    0.0     0    0   0.0   0.0    0.0    0.0     0    0   0.0    0.0    0.0    0.0   0.0   0.0  12:07:32
+ if (iostatopt["D")&&(iostatopt["T")&&(iostatopt["l") {
+   kill tx kill drives
+   read hdr1
+   read hdr2
+   read rechdr1
+   read rechdr2 //Disks:...
+   read rechdr3 //line
+   read rechdr4 //%tm ...
+   read rechdr5 //act...
+   set logmetrics=$TR($zstrip(rechdr4,"<=>"," ","")," ",",")
+   set logmetricssize=$L(logmetrics,",")
+   for i=1:1 { read t if $zeof=-1 { quit } set tx(i)=t set t=$zstrip(t,"<=>"," ","") set d=$P(t," ",1) if d'="" { set drives(i)=d } }
+ }
+ set dt=$zh close cmddev set dt=$zh-dt
+ W "2 close pipe "_dt,!
+ set metametricslong=$$metametricslong set statmetricssize=$LL(metametricslong)
+ set statmetrics="" set o=0 while $listnext(metametricslong,o,v) { set statmetrics=statmetrics_$LB($LG(v,1)) }
+ set statmetrics=$LTS(statmetrics,",")
+#; guess about metrics is wrong
+ if logmetricssize'=statmetricssize {
+   B  //guess about metrics is wrong
+ }
+#if 0
+#; check timestamp code translation
+ try {
+   set ts=$xecute(codets,tx3)
+ }
+ catch e{
+   #;B
+   $$$ConLog($ZNAME_" error during time stamp transformation $ZE="_$ZE)
+   set quit=1
+ }
+#endif
+ if isnoshell=1 {
+   set cmd="/usr/bin/iostat"
+   kill args
+   set args($I(args))="-tdxm"
+   set args($I(args))=delay
+   if +count>0 set args($I(args))=count
+   #;zw args
+   open cmddev:(/COMMAND=cmd:/ARGS=args...):1
+   if $test=0 set stop=1 quit
+   use cmddev
+ }
+ else {
+   set cmd="iostat -"_iostatopt_" "_delay_$case(+count>0,1:" "_count,:"")
+   open cmddev:(cmd:"Q"):1
+   if $test=0 set stop=1 quit
+   use cmddev
+ }
+ quit
+readhdr
+ use cmddev read hdr1 read hdr2 quit
+
+DaemonSignal() public { quit "^"_$ZNAME }
+DaemonLock() public { quit "^"_$ZNAME }
+DaemonName() public { quit "iostat" }
+logprefix() public { quit "stat_iostat" }
+
+#; api start vmstat daemon
+start() public { job log("","","",1) }
+#; api stop vmstat daemon
+stop(reason="user") public { set ret=$SYSTEM.Event.Signal($$DaemonSignal,$LB("terminate",reason)) quit ret }
+switchlog() public { set ret=$SYSTEM.Event.Signal($$DaemonSignal,$LB("switchlog")) quit }
+#; standalone usage outside stat monitor
+display(delay,count,log="") do log(delay,count,log) quit
+
+SignalHandler
+ set cmd=$LG(msg,1)
+ if cmd="terminate" { do termiostat set stop=1 }
+ elseif cmd="switchlog" {
+   close log
+   set hinit=$h set newlog=$$log^stat.lib(logdir,$$logprefix,hinit,delay,.logcount) set day=$zd(hinit,3)
+   open newlog:("NWS"):1
+   if $test'=1 $$$ConLog($ZNAME_" exits, failure to create new open log file "_newlog) set stop=1 quit
+   use newlog
+   W "ts/disk,"_statmetrics,!
+   set log=newlog set istat=0
+ }
+ quit
+termiostat() public {
+ try {
+   set ret=$LB(1)
+   set dev="|CPIPE|2"
+   open dev:("ps -o pid,ppid,args":"Q")
+   kill psout use dev for i=0:1 { read t quit:$zeof=-1  set psout(i)=$zstrip(t,"<=>"," ","") }
+   set n=$order(psout(""),-1)
+   set pid="" for i=1:1:n { if $P(psout(i)," ",3)="iostat" { set pid=$P(psout(i)," ",1) quit } }
+   close dev
+   $$$ConLog($ZNAME_" kill -TERM pid="_pid)
+   open dev:("kill -TERM "_pid) close dev
+ } catch { $$$ConLog($ZNAME_" fail terminate iostat pid="_pid_", $ZE="_$ZE) set ret=$LB(0,"$ZE",$ZE) }
+ quit ret
+}
+tsTransformInit
+ kill a do posixlocalelctime^stat.lib(.a)
+ set dfmt=a("d_fmt") set tfmt=a("t_fmt")
+#if 0
+ kill codets
+ do xecutecodets^stat.lib(dfmt,tfmt,.codets)
+#endif
+ kill a
+ quit
+#;
+metametricslong() public {
+ quit $LB(
+   $LB("%tm_act","the percentage of time the physical disk/tape was active"),
+   $LB("bps","data transferred (read or written) per second to the drive"),
+   $LB("tps","tranfsers per second"),
+   $LB("bread","amount of data read per second"),
+   $LB("bwrtn","data written per second"),
+   $LB("rps"),
+   $LB("ravg"),
+   $LB("rmin"),
+   $LB("rmax"),
+   $LB("rtos"),
+   $LB("rfails"),
+   $LB("wps"),
+   $LB("wavg"),
+   $LB("wmin"),
+   $LB("wmax"),
+   $LB("wtos"),
+   $LB("wfails"),
+   $LB("qavgt","average time spent by a transfer request in the wait queue"),
+   $LB("qmint"),
+   $LB("qmaxt"),
+   $LB("qwavgsz"),
+   $LB("qsavgsz"),
+   $LB("qsfull","number of times service queue full")
+ )
+}

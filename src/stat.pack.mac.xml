@@ -1,0 +1,293 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Export generator="Cache" version="25">
+<Routine name="stat.pack" type="MAC" languagemode="0"><![CDATA[
+#include stat
+ #; pack logs for day in one file
+ #; to do remove logdir argument
+run(hdate,htime="",logdir,rmstatlogs=1,rmoldpacklogs=1)
+ #;B ;begin
+ $$$PROCMODTRAP
+ set platformtype=$$GeneralPlatform^stat.lib()
+ set platform=$$platform^stat.lib
+ if platformtype="unix" { try { do sumask^stat.lib("rw-rw-r--") } catch {} }
+ set statlog="stat.log"
+ set NL=$$NL^stat.lib
+ set CtlGlo=$$CtlGlo^stat.lib
+ do $SYSTEM.Process.SwitchOSdir(1)
+ set packd8date=$$dateHtoD8^stat.lib(hdate)
+ set packdatename=$$dateD8toLNA^stat.lib(packd8date)
+ set datepacklognamepat="*"_packdatename_"*.log"
+ set host=$SYSTEM.INetInfo.LocalHostName()
+ set instance=$P($zu(86),"*",2)
+ set packname="logs_"_host_"_"_instance_"_" _packdatename
+ if htime'="" { set packname=packname_"_"_$TR($zt(htime),":","_") }
+ set logdir=$$logdir^stat.lib
+ #; internal zip implementation using %Library.zip class
+ set intzip=$G(^SYS("stat","pack","internal"),0)
+ if intzip=1&&('$D(^rOBJ("%Library.zip.0"))) {
+   do $zu(9,"","stat internal zip implementation but there is no class %Library.zip")
+   set intzip=0
+ }
+#; pack type if defined than points preferable way of compressing: zip, targz, internal
+#; default zip
+ #;set packtype=$G(^SYS("stat","pack","type"),$case(platformtype="winnt",1:"internal",:"zip") )
+ set packtype=$G(^SYS("stat","pack","type"),"zip")
+ if platformtype="winnt" { set intzip=1 }
+#if 0
+ if packtype="internal" && ('$D(^rOBJ("%Library.zip.0"))) {
+   kill msg set msg="missed %Library.zip class " do statlog^stat.lib("stat pack",.msg) quit
+ }
+#endif
+ if packtype="zip" && (intzip=1) && ('$D(^rOBJ("%Library.zip.0"))) { 
+   kill msg set msg="missed %Library.zip class " do statlog^stat.lib("stat pack",.msg) quit
+ }
+ set cmdzip=$G(^SYS("stat","pack","zip","cmd"))
+ if (platform="linux") || (platform="aix" ) {
+   do chkZip^stat.lib(.zip)
+   if packtype="zip" {
+     if zip="Zip" { set chkzip=1 set cmdzip="zip" }
+     else { set chkzip=0 set cmdzip="" set packtype="targz"}
+   }
+   if packtype="targz" {
+     set chkTarGz=$$chkTarGz^stat.lib()
+     if platform="linux" { set cmdtargz="tar cvzf" }
+#; there is problem to redirect stderr of tar to stdout in csh which is used by cache kernel on exec
+#; command
+#; tar cvf - files | gzip > archive
+#; this redirection works
+#; tar cvf - files | gzip > archive >@tmplog
+#; tmplog might be read and then write to stat.log
+
+     elseif platform="aix" { 
+      set cmdtargz="tar cvf -" set cmdtargzpost="|gzip>"
+#; enforce usage internal zip implementation
+      set intzip=1 set packtype="zip"
+    }
+   }
+ }
+ set logdir=$$logdir^stat.lib
+ set osdir=$SYSTEM.Process.CurrentDirectory(logdir)
+ set savedeof=$$eof^stat.lib(1)
+ 
+ set iswebgwlog=$D(^rOBJ("stat.webgwlog")) set webgwn=0
+ if iswebgwlog { set zhwebgw=$zh try { do packall^stat.webgwlog(packd8date,packdatename,.webgwn,.webgwlist) } catch {} }
+ 
+ do cmdCopy
+ do cmdRemove
+ 
+ #; cache info
+ #; cp cache.cpf
+ if $G(optcachecpf,1)=1&&(cmdCopy'="") {
+    try {
+      set cachecpf="cache.cpf"
+      set cmd=cmdCopy_" "_$SYSTEM.Util.InstallDirectory()_cachecpf_" ."
+      set dev="|CPIPE|" open dev:(cmd:"Q") close dev
+    } catch {}
+ } 
+ if $G(optccon,1)=1&&(cmdCopy'="") {
+    set cconlog="cconsole.log" set cmd=cmdCopy_" "_$zu(12)_cconlog_" ."
+    try { set dev="|CPIPE|" open dev:(cmd:"Q") close dev } catch {}
+    #;if ##class(%File).Exists
+ }
+
+ #; mount
+ if $G(optmountlog,1)=1&&(platform="linux") {
+   set optmountlog=1
+   set mountlog="mount.log" set cmd="mount > "_mountlog
+   try { set dev="|CPIPE|" open dev:(cmd:"Q") close dev } catch {}
+ } else { set optmountlog=0 }
+ #; lsblk util-linux package
+ if $G(optlsblk,1)=1&&(platform="linux") {
+   set optlsblk=1
+   set lsblklog="lsblk.log" set cmd="lsblk -l > lsblk.log"
+   try { set dev="|CPIPE|" open dev:(cmd:"Q") close dev } catch e { do $zu(9,"","stat error run lsblk $ZE="_e.AsSystemError()) }
+ } else { set optlsblk=0 }
+  
+ #; /proc/cpuinfo
+ if $G(optproccpuinfo,1)&&(platform="linux") {
+    set optproccpuinfo=1
+    set proccpuinfolog="proc.cpuinfo.log"
+    set cmd="cp /proc/cpuinfo "_proccpuinfolog
+    try { set dev="|CPIPE|" open dev:(cmd:"Q") close dev } catch {}
+ } else { set optproccpuinfo=0 }
+ #; /proc/meminfo
+ if $G(optprocmeminfo,1)&&(platform="linux") {
+    set optprocmeminfo=1
+    set procmeminfolog="proc.meminfo.log" set cmd="cp /proc/meminfo "_procmeminfolog
+    try { set dev="|CPIPE|" open dev:(cmd:"Q") close dev } catch {}
+ } else { set optprocmeminfo=0 }
+ #; ms systeminfo
+ if platformtype="winnt" do msSystemInfo
+#; wait webgwlog completion extract data from CSP.log for period
+ if +$G(webgwn,0)>0 {
+   set zhwebgw=$zh-zhwebgw
+   set webgwwait=$G(^SYS("stat","webgw","extractwaittime"),300)
+   set webgwwait=webgwwait-zhwebgw if webgwwait<0 { set webgwwait=0 }
+   try { do monwait^stat.webgwlog(webgwwait) } catch {}
+ }
+
+#; pack logs in one archive file
+#; c:\apl\7-zip\7z a -tzip file.zip file1 file2
+#; which archivator to use
+ set cmd=datepacklognamepat
+ set cmd=cmd_$case($G(optcachecpf,1),1:" "_cachecpf,:"")
+ set cmd=cmd_$case($G(optccon,1),1:" "_cconlog,:"")
+ if $G(optmountlog)=1&&($G(mountlog)'="") set cmd=cmd_" "_mountlog
+ if $G(optlsblk)=1&&($G(lsblklog)'="") set cmd=cmd_" "_lsblklog
+ if $G(optproccpuinfo)=1&&($G(proccpuinfolog)'="") set cmd=cmd_" "_proccpuinfolog
+ if $G(optprocmeminfo)=1&&($G(procmeminfolog)'="") { set cmd=cmd_" "_procmeminfolog }
+ if platformtype="winnt"&&($G(optmssysteminfolog,1)=1)&&($G(mssysteminfolog)'="") { set cmd=cmd_" "_mssysteminfolog }
+ if packtype="zip" {
+   set packfile=packname_".zip"
+   if intzip=1 {
+     set zip=##class(%Library.zip).%New()
+     set zip.SourceDir=logdir
+     set zip.packfile=packfile
+     #; B  ; start add files to pack
+     set iz=1 set n=$L(cmd," ") for i=1:1:n {
+       set f=$P(cmd," ",i)
+       if f'="" {
+         if $F(f,"*") {
+           set f1=$zsearch(f)
+           while f1'="" {
+             if platformtype="winnt" { if $zcvt($E(f1,1,$L(logdir)),"u")=$zcvt(logdir,"u") set f1=$E(f1,$L(logdir)+1,$L(f1)) }
+             else { if $E(f1,1,$L(logdir))=logdir set f1=$E(f1,$L(logdir)+1,$L(f1)) }
+             set zip.files(iz)=f1
+             set f1=$zsearch("")
+             set iz=iz+1
+           }
+         }
+         else { if ##class(%File).Exists(f) { set zip.files(iz)=f set iz=iz+1 } }
+       }
+     }
+     if optlsblk=1&&($G(lsblklog)'="") { set iz=iz+1 set zip.Files(iz)=lsblkls }
+     do zip.pack()
+     set packlog="stat pack files "_cmd
+     do statlog^stat.lib(,.packlog)
+     kill zip
+     set cmd=""
+   }
+   else {
+     if cmdzip'="" { set cmd=cmdzip_" "_packfile_" "_cmd }
+     else { set cmd="" }
+   }
+   #;set cmd="sh -c zip "_packname_".zip"_" "_datepacklognamepat
+ }
+ elseif packtype="targz" {
+   set packfile=packname_".tar.gz"
+   if platform="linux" {
+     if cmdtargz'="" { set cmd=cmdtargz_" "_packfile_" "_cmd }
+     else { set cmd="" }
+   }
+   elseif platform="aix" {
+     if cmdtargz'="" { set cmd=cmdtargz_" "_cmd_" | gzip > "_packfile }
+     else { set cmd="" }
+   }
+   else { set cmd="" }
+ }
+ #; run command to pack log files into one
+ if cmd'="" {
+   try {
+     kill packlog set dev="|CPIPE|" open dev:(cmd:"Q") use dev 
+     set i=0 for { read text quit:$zeof=-1  set i=i+1 set packlog(i)=text }
+     set packlog="stat pack run archive logs command "_cmd
+     do statlog^stat.lib(,.packlog)
+   } catch e { do $zu(9,"","stat pack archive files $ZE="_e.AsSystemError()) }
+   use 0 close dev
+ }
+ 
+ #;B ;remove packed logs
+ 
+ #; remove stat logs
+ if cmdRemove'="" {
+     set cmd=""
+     #; delete stat logs
+     if rmstatlogs=1 { set cmd=" "_datepacklognamepat }
+     if $G(cachecpf)'="" { set cmd=cmd_$case($G(optcachecpf,1),1:" "_cachecpf,:"") }
+     if $G(cconlog)'="" { set cmd=cmd_$case($G(optccon,1),1:" "_cconlog,:"") }
+     if $G(mountlog)'="" { set cmd=cmd_$case($G(optmountlog,1),1:" "_mountlog,:"") }
+     if $G(lsblklog)'="" { set cmd=cmd_$case($G(optlsblk,1),1:" "_lsblklog,:"") }
+     if $G(proccpuinfolog)'="" { set cmd=cmd_$case($G(optproccpuinfo,1),1:" "_proccpuinfolog,:"") }
+     if $G(procmeminfolog)'="" { set cmd=cmd_$case($G(optmeminfo,1),1:" "_procmeminfolog,:"") }
+     if $G(mssysteminfolog)'="" { set cmd=cmd_" "_mssysteminfolog }
+     set cmd=cmdRemove_cmd
+ }  
+ else { set cmd="" }
+ 
+ if cmd'="" {
+   try {
+     if platform="aix" set cmd=cmd_" 2>&1"
+     kill rmlog open dev:(cmd:"Q") use dev
+     set i=0 for  { read text quit:$zeof=-1  set i=i+1,rmlog(i)=text }
+     use 0 close dev
+     set rmlog="stat pack run remove log files command "_cmd
+     do statlog^stat.lib(,.rmlog)
+   } catch e { do $zu(9,"","stat pack remove log files $ZE="_e.AsSystemError()) }
+ }
+ 
+ #;B ;delete old packed logs
+ if rmoldpacklogs { do DeleteOldPackedLogs^stat.cleanup(hdate,packtype) }
+ try { if $G(sftp,1) { job run^stat.sftp(packfile) } } catch {}
+ quit
+
+DaemonError
+ set $ztrap=""
+ do $zu(9,"","stat packer terminated error $ZE="_$ZE)
+ quit
+
+#; unpack logs and optionally load into statns
+#; logdir directory where to unpack logs default the same as packlog
+#; loaddb load into stat ns&db
+#; return $LB(0|1,more info)
+unpack(packlog,packtype,logdir,loaddb=0) public {
+} 
+ #; windows
+ #; https://docs.microsoft.com/en-us/windows-server/administration/windows-commands/copy
+ #; unix man cp
+cmdCopy
+ set cmdCopy=""
+ if platformtype="unix" { set cmdCopy="cp" }
+ elseif platformtype="winnt" { set cmdCopy="copy" }
+ quit
+
+ #; windows
+ #; https://docs.microsoft.com/en-us/windows-server/administration/windows-commands/del
+cmdRemove
+ set cmdRemove=""
+ if platformtype="unix" { 
+   if platform="linux" { set cmdRemove="rm -fv" }
+   elseif platform="aix" { set cmdRemove="rm -fe" }
+ }
+ elseif platformtype="winnt" { set cmdRemove="del" }
+ quit
+  
+init
+ 
+ quit
+msSystemInfo
+ kill textSystemInfo set retExec=$$shellexec^stat.lib("""echo | chcp 437 | systeminfo""",.textSystemInfo)
+ if retExec {
+   set mssysteminfolog="systeminfo.log"
+   set translation=""
+   open mssysteminfolog:("NWS"_$case(translation,"":"",:"K\"_translation_"\")):1
+   if $test=1 {
+     use mssysteminfolog
+     set i="" for { set i=$order(textSystemInfo(i),1,t) quit:i=""  W t,! }
+     use 0 close mssysteminfolog kill textSystemInfo
+   }
+   else {
+     set msg="failed to create file "_msssyteminfolog
+     do statlog^stat.lib(,.msg) kill msg
+     do ##class(%File).Delete(mssysteminfolog)
+     close mssysteminfolog use 0
+   }
+ }
+ else {
+   set msg="error run systeminfo.exe $ZE="_$ZE
+   do statlog^stat.lib($ZNAME,.msg) kill msg
+   do ##class(%File).Delete(mssysteminfolog)
+   set mssysteminfolog=""
+ }
+ quit
+]]></Routine>
+</Export>

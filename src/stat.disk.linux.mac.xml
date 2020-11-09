@@ -1,0 +1,158 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Export generator="Cache" version="25">
+<Routine name="stat.disk.linux" type="MAC" languagemode="0"><![CDATA[
+ #; linux io stat for block devices
+
+ #include stat
+
+log(delay,count,log="",statmon=0)
+ $$$PROCMODTRAP
+ try { if $$unix^stat.lib do sumask^stat.lib("rw-rw-r--") } catch{}
+ do $SYSTEM.Process.SetZEOF(1)
+ if log="" set log=$zu(12)_"stat_disk_"_$TR($zdt($h,3)," -:","_" )_".log"
+ open log:("NWS"):1 if $test'=1 quit $LB(0,"error create file",log)
+ set statlen=16384
+ set diskstat="/proc/diskstats"
+ close diskstat open diskstat:("RUK\RAW\"):1 if $test'=1 quit $LB(0,"open",diskstat)
+ set statinfo="disk stat,hostname="_$SYSTEM.INetInfo.LocalHostName()
+ set statnames="time,major,minor,dev,"_$LTS($$statnames,",")
+ use log W statinfo,!,statnames,! 
+ set NL=$C(10)
+ if statmon=1 {
+    set DaemonEvent=$$DaemonEvent set DaemonLock=$$DaemonLock
+    set retevent=$SYSTEM.Event.Create(DaemonEvent)
+    if retevent'=1 { $$$ConLog($ZNAME_"exits: failure create daemon event "_DaemonEvent) close log quit }
+#; register itself in CtlGlo process table
+    do CtlGloSelfProcStart^stat.lib($$Daemon)
+#; send event to master it registers daemon in it proc("daemon") var
+    do procstart^stat.monitor($$$SelfJid,$J,$$$SelfPteuc,$$Daemon)
+    lock +@DaemonLock
+    set stop=0 set dt=0
+    set logdir=$$logdir^stat.lib
+    kill nodefilter if $D(^SYS("stat","disk","nodefilter")) { merge nodefilter=^SYS("stat","disk","nodefilter") }
+ }
+ do loop
+runexit
+ use 0 close diskstat
+ if statmon=1 {
+   do CtlGloSelfProcStop^stat.lib($$Daemon)
+   do procstop^stat.monitor($$$SelfJid,$J,$$$SelfPteuc,$$Daemon)
+   do $SYSTEM.Event.Delete(DaemonEvent)
+   lock -@DaemonLock
+ } 
+ quit
+ 
+DaemonError set $ztrap="" $$$ConLog($ZNAME_" $ZE="_$ZE) goto runexit
+ quit 
+ 
+loop 
+ set istat=0
+ use diskstat:0
+ read oldstattx:statlen
+ set oldstat=$LFS($zstrip(oldstattx,"<="," "),$C(10))
+ for { 
+   if statmon=1 {
+     set retwait=$SYSTEM.Event.WaitMsg(DaemonEvent,delay)
+     set zh=$zh
+     if $LG(retwait,1)=1 {
+        set msg=$LG(retwait,2)
+        do DaemonSignalHandler
+        if $G(stop)=1 quit
+        set dt=$zh-zh
+     } else { set dt=0 }
+   }
+   else { hang delay }
+   set h=$h
+   use diskstat:0
+   read newstattx#statlen
+   set newstat=$LFS($zstrip(newstattx,"<="," "),$C(10))
+#;device iterarion
+   kill oldedevstat,newdevstat
+   set L1=$LL(oldstat)-1 for i=1:1:L1 {
+     set olddevstat=$LFS($zstrip($LG(oldstat,i),"<"," ")," ")
+     set $LB(major,minor,devname)=olddevstat
+     set olddevstat=$LI(olddevstat,##expression(3+1),##expression(3+11))
+     set olddevstat(major,minor)=olddevstat
+   }
+   set L2=$LL(newstat)-1 for i=1:1:L2 {
+     set newdevstat=$LFS($zstrip($LG(newstat,i),"<"," ")," ")
+     set $LB(major,minor,devname)=newdevstat
+     set newdevstat=$LI(newdevstat,##expression(3+1),##expression(3+11))
+     set newdevstat(major,minor)=newdevstat_$LB(devname)
+   }
+   set stat=$zdt(h,3)
+   set major="" for {
+     set major=$order(newdevstat(major)) quit:major=""
+     set minor="" for {
+        set minor=$order(newdevstat(major,minor),1,newdevstat) quit:minor=""
+        set olddevstat=olddevstat(major,minor)
+        if $D(nodefilter)=0 || ( +$D(nodefilter) && +$D(nodefilter(major,minor)) ) {
+          set stat=stat_","_major_","_minor_","_$LG(newdevstat,12)
+          for i=1:1:8 { set stat=stat_","_($LG(newdevstat,i)-$LG(olddevstat,i)) }
+          set stat=stat_","_$LG(newdevstat,9)
+          for i=10:1:11 {set stat=stat_","_($LG(newdevstat,i)-$LG(olddevstat,i)) }
+          set stat=stat_NL 
+        }
+     }
+   }
+   use log W stat
+   set oldstat=newstat
+   set istat=istat+1 if count'="" && (istat '< count ) { quit }
+ }
+ quit
+
+start() public {
+ do CtlGloCheckDaemon^stat.lib("diskstat",.pte) 
+ if $order(pte(""))="" {
+   #; we might here scan whole processes table for code running lockstat   
+   if $SYSTEM.Event.Defined($$DaemonEvent) { do $SYSTEM.Event.Delete($$DaemonEvent) } /* cleanup daemon event*/
+ } 
+ set delay=$G(^SYS("stat","interval"),1)
+ set logdir=$$logdir^stat.lib
+ set h=$h set log=$$log^stat.lib(logdir,$$logprefix,h,delay,.count)
+ job log(delay,"",log,1)
+ quit
+ 
+} 
+stop() public { set ret=$SYSTEM.Event.Signal($$DaemonEvent,$LB("terminate",reason)) quit ret }
+
+
+Daemon() public { quit "diskstat" }
+DaemonEvent()  public { quit "^"_$ZNAME } 
+DaemonLock()  public { quit "^"_$ZNAME } 
+
+DaemonSignalHandler
+ set cmd=$LG(msg,1)
+ if cmd="terminate" { set stop=1 }
+ elseif cmd="switchlog" {
+    close log
+    set h=$h set newlog=$$log^stat.lib(logdir,$$logprefix,h,delay,.count)
+    open newlog:("NWS"):1
+    if $test'=1 $$$ConLog($ZNAME_" exits failure create new open log file") set stop=1 quit
+    use newlog
+    W statinfo,!,statnames,! 
+    set log=newlog set istat=0
+ } 
+ quit
+switchlog() public { set ret=$SYSTEM.Event.Signal($$DaemonEvent,$LB("switchlog")) quit ret }
+logprefix() public { quit "stat_disk" }
+
+ #; https://www.kernel.org/doc/Documentation/iostats.txt
+ #; https://www.kernel.org/doc/Documentation/ABI/testing/procfs-diskstats
+statnames() public {
+ quit $LB(
+  "rd_ios",     // 1
+  "rd_merges",  // 2
+  "rd_secs",    // 3
+  "rd_ticks",   // 4
+  "wr_ios",     // 5
+  "wr_merges",  // 6
+  "wr_secs",    // 7
+  "wr_ticks",   // 8
+  "ios_pgr",    // 9
+  "tot_ticks",  // 10
+  "rq_ticks"    // 11
+ )
+}
+]]></Routine>
+</Export>

@@ -1,0 +1,89 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Export generator="Cache" version="25">
+<Routine name="stat.pButtons" type="MAC" languagemode="0"><![CDATA[
+ #; file pButtons html file to unpack
+ #; dir  where to unpack files
+unpack(file,dir="")
+ open file:("RS"):0 I $T'=1 Q
+ use file
+ set out=""
+ set redirect=0
+ set line=0
+ set xprev=""
+ do $zu(68,40,1)
+ for  {
+    use file R x I $zeof=-1 Q
+    set line=line+1
+    #; latest version    
+    if $$endline(x,"<pre>")||($F(x,"<div id=vmstat></div>vmstat")<$F(x,"<!-- beg_vmstat --><pre>")) {
+       set odivid=$F(x,"<div id=")
+       if odivid {
+          set id=$E(x,odivid,$L(x))
+          set id=$P(id,">",1)
+          set id=$zstrip(id,"<>"," ","")
+          set id=$zstrip(id,"<>","""","")
+          use 0 W id,!
+          use file
+          if out'="" C out
+          set out=dir_id
+          open out:("NWS"):1 I $T=0 B
+          if id="vmstat" {
+            set o=$F(x,"<!-- beg_vmstat --><pre>")
+            if o<$L(x) { use out W $E(x,o,$L(x)),! }
+          }
+          set redirect=1
+        }
+        else  { goto xprev }
+    }
+    #; try format old version
+    elseif $$startwith(x,"<pre>") {
+xprev
+        set odivid=$F(xprev,"<div id=")
+        if odivid {
+          set id=$E(xprev,odivid,$L(xprev))
+          set id=$P(id,">",1)
+          set id=$zstrip(id,"<>"," ","")
+          set id=$zstrip(id,"<>","""","")
+          use 0 W id,!
+          use file
+          if out'="" C out
+          set out=dir_id
+          open out:("NWS"):1 I $T=0 B
+          set redirect=1
+        }
+    }
+    elseif $$startwith(x,"</pre>") {
+        set redirect=0
+    }
+    elseif redirect=1 {
+      if x="<!-- end_win_perfmon -->" continue
+      if $$startwith(x,"<!--")'=1||(1) {
+         use out
+         W x,!
+         use file
+      }
+    }
+    set xprev=x
+ }
+ if out'="" C out
+ close file
+ quit
+ 
+startwith(x,pattern) {
+ set L=$L(pattern)
+ if $E(x,1,L)=pattern Q 1
+ quit 0
+}
+ #; pattern<!--...EOL
+endline(x,pattern) {
+ set L=$L(pattern)
+ if $E(x,$L(x)-L+1,$L(x))=pattern Q 1
+ set o=$F(x,"<!--")
+ if o {
+   set o=o-$L("<!--")-1
+   if $E(x,o-L+1,o)=pattern Q 1
+ }
+ quit 0
+}
+]]></Routine>
+</Export>

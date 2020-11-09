@@ -1,0 +1,21 @@
+ROUTINE stat [Type=INC]
+
+#define PROCMODTRAP set pmode=$zjob#1,dmode=$zjob\2#2 if pmode=0 && (dmode=1) set $ztrap="DaemonError"
+
+#; #define NOJRN try { do SetJournal^%SYS.NOJRN(0) } catch { do $zu(9,"",$ZNAME_" disabling journal failed use version >=2009") }
+#define NOJRN if '($view(0,-1,4)\1024#2) { view 0:-1:4:$view(0,-1,4)+1024 }
+#define LogStat(%1)
+#define MsgEvt(%1) $LB(%,1)
+#define LogTSName(%1) $tr($zdt(%1,3)," :-","___")
+
+#define SelfJid $zu(61)
+#; process table entry usage count
+#define SelfPteuc ($zu(61,30,$zu(61))\65536)
+#define JidPteuc(%1) ($zu(61,30,%1)\65536)
+
+#;  horolog ordered timestamp
+#define HOTS(%1) (86400*$P(%1,",",1)+$P(%1,",",2))
+#; cconsole log messag e
+#define ConLog(%1) do $zu(9,"",%1)
+#; shorting datetime for timestamp stat
+#define SHORTTS(%1) $TR(%1," :","")

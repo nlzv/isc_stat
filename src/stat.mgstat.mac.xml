@@ -1,0 +1,226 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Export generator="Cache" version="25">
+<Routine name="stat.mgstat" type="MAC" languagemode="0"><![CDATA[
+#include stat
+ #; redefine output device
+ #; move out adjucent
+ #; fix date time
+log(delay,count)
+ $$$PROCMODTRAP
+ #;do $zu(9,"",$zname_" pmode="_pmode_",dmode="_dmode_",$ztrap="_$ztrap)
+ set logdir=$$logdir^stat.lib
+ set monevent=$$DaemonEvent^stat.monitor()
+#; notify master about our usectr 
+ set selfjid=$zu(61)
+ set pteuc=$$pteuc^stat.lib(selfjid)
+ set ret=$SYSTEM.Event.Signal(monevent,$LB("usectr","mgstat",pteuc))
+#if 1
+ do CtlGloSelfProcStart^stat.lib("mgstat")
+#else
+ set ^SYS("stat","proc",$zu(61))=$LB(selfjid,$P($job,":",1),pteuc,"mgstat")
+#endif
+ #; for unix fix umask
+#if 1
+ if $$unix^stat.lib do sumask^stat.lib("rw-rw-r--") 
+#else
+ if $zversion(1)=3 {
+   set umask=(1*8)+1*8+3
+   set umaskold=$zu(47,umask)
+ }
+#endif 
+ set %log=logdir_"mgstat_"_$tr($zdt($h,3)," :-","___")_"_"_delay_"x"_count_".log" 
+ open %log:("NWS"):10
+ if $test'=1 goto logexit
+ set %text=""
+ set %line=0
+ 
+#if 0
+ d ^mgstat(delay,count)
+#else
+ set dly=delay
+ set cnt=count
+ 
+ set pagesz=0
+ set reqname=%log
+ new (dly,cnt,pagesz,reqname,%text,%line,%log)
+ 
+ do init^mgstat
+ W ! /* write to 2 lines of heading, for 2nd line statnames without NL */
+ ;set pmode=1 
+ #; set io redirection for file
+ use %log::"^"_$ZNAME
+ do $zu(82,12,1)
+#if 0
+ do $zu(9,"","stat.mgstat debug $io="_$io_",$p="_$p)
+ set mnertn=$zu(96,12)
+ do $zu(9,"","stat.mgstat debug mnemonic routine="_mnertn)
+#endif
+ do loop^mgstat
+#endif
+ 
+ do $zu(82,12,0)
+logexit
+#if 1
+ do CtlGloSelfProcStop^stat.lib("mgstat")
+#else
+ kill ^SYS("stat","proc",$zu(61))
+#endif
+ close %log
+ quit
+DaemonError
+ set $ztrap=""
+#if 1
+ do CtlGloSelfProcStop^stat.lib("mgstat")
+#else
+ kill ^SYS("stat","proc",$zu(61))
+#endif
+ do $zu(9,"","stat mgstat exit error $ZE="_$ZE)
+ quit
+
+#; force = 0 use @CtlGlo@("proc") table 
+#; force = 1 find routine in pidtab and kill this process
+stop(reason="user",force=0) public {
+ if force=1 {
+ }
+ elseif force=0 {
+   set CtlGlo=$$CtlGlo^stat.lib
+   do procFindByDaemon^stat.lib("mgstat",.jidlist)
+   set n=$LL(jidlist) if n>0 {
+     for i=1:1:n {
+       set jid=$LG(jidlist,i)
+       set pid=$zu(61,17,jid)
+       if pid>0 {
+         set ret=$zu(4,pid)
+         if ret=1 {
+           W "kill using proc table jid="_jid_",pid="_pid,! 
+           kill @CtlGlo@("proc",jid)
+        }
+       }
+     }
+   }
+ }
+ quit
+}
+wstr(x)
+ do $zu(82,12,0)
+ use %log
+ set x=$zstrip(x,"<=>"," ")
+ set %text=%text_x
+ do $zu(82,12,1)
+ quit
+
+wtab(x)
+ do $zu(82,12,0)
+ do $zu(82,12,1)
+ quit
+wnl
+ new text
+ do $zu(82,12,0)
+
+ set %line=%line+1
+ #;do $zu(9,"","stat.mgstat debug:"_%line_":'"_%text_"'")
+
+ set text=%text
+ #; header line 
+ if %text="" { 
+ #; heading already written 
+#if 0
+   W hfname_","_$$version^mgstat()_",wdcycle="_$G(wdcycle)_",globalbuffers="_$G(globufs)_",routinebuffers="_$G(roubufs)_",numberofcpus="_$G(ncpus)_",productversion="_$zv,!
+#endif
+ } 
+ #; header line for columns (2nd line) already done, should not happen
+ elseif $P(%text,",",1)="Date" {
+   W %text,!
+ }
+ else {
+   set text=$TR(%text," ","")
+   set date=$P(text,",",1)
+   set d=$E(date,4,5),m=$E(date,1,2),y=$E(date,7,10)
+   set time=$P(text,",",2)
+   set text=$E(text,$L(date)+$L(time)+3,$L(text))
+   set date=y_"-"_m_"-"_d
+   set time=time_"."_$P($zts,".",2)
+   set text=date_","_time_","_text
+   W text,!
+ }
+ set %text=""
+ do $zu(82,12,1)
+ quit
+wff
+ do $zu(82,12,0)
+ use %log
+ W #
+ set %text=""
+ do $zu(82,12,1)
+ quit
+
+ #; make text report, read stat as text file
+reporttext(log,report,pagesize=25) public {
+ set zh=$zh
+ open log:("RS"):1
+ set retopenlog=$test
+ open report:("NWS"):1
+ set retopenreport=$test
+ set zeof=$zu(68,40,1)
+ do $zu(68,40,1)
+ 
+ use log
+ read hdrlog
+
+#; here should be MGSTAT<vermaj>.<verminor>
+ set mgstat=$P(hdrlog,",",2)
+#; doesn't look as mgstat 
+ if mgstat'?1"MGSTATv"0.N1"."0.AN { B  }
+
+ use report
+ write hdrlog,!
+
+ use log
+ read hdrcols
+
+ set hdrn=$L(hdrcols,",")
+#; hdrcols2 for raw with timestamp microseconds
+ set hdrcols2=""
+ set hc=$P(hdrcols,",",1)
+ set hdrcols2=$J("",10-$L(hc))_hc
+ set hc=$P(hdrcols,",",2)
+ set hdrcols2=hdrcols2_","_$J("",15-$L(hc))_hc
+ set hc=$P(hdrcols,",",3,hdrn)
+ set hdrcols2=hdrcols2_","_hc
+
+ kill cw
+ for i=3:1:hdrn {
+   set cw(i)=$L($P(hdrcols,",",i))
+ }
+ set line=0
+ for {
+   use log read data
+   if $zeof=-1 quit
+   if line#pagesize=0 {
+     use report W hdrcols2,!
+   }   
+   use report
+   
+   set cv=$P(data,",",1,2)
+   set xl=26-$L(cv) if xl>0 set cv=cv_$J("",xl)
+   set out=cv
+   for i=3:1:hdrn {
+     set cv=$P(data,",",i)
+     set xl=cw(i)-$L(cv) 
+     if xl>0 set cv=$J("",xl)_cv
+     set out=out_","_cv 
+   }
+ 
+   write out,!
+   set line=line+1
+ }
+
+ use 0
+ close log
+ close report
+ set dt=$zh-zh
+ write "lines "_line_" time "_dt,!
+ quit
+}
+]]></Routine>
+</Export>
