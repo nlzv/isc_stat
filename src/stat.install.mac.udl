@@ -1,0 +1,440 @@
+ROUTINE stat.install
+
+#; load source from github
+LoadGit()
+ set IsUDL=$$IsUDL
+ kill Items
+ set owner="nzlv"
+ set repos="isc_stat"
+ kill items do githubGetItems(,,,.items)
+ set i="" for { set i=$order(items(i),1,src) quit:i=""
+   set type=$P(src,".",$L(src,".")-1) set format=$P(src,".",$L(src,"."))
+   if IsUDL=1 && (format="udl") { set Items(format,type,src)="" }
+   elseif IsUDL=0 && (format="xml") { set Items(type,src)="" }
+ }
+ kill items do githubGetItems(,,"dependencies",.items)
+ set i="" for { set i=$order(items(i),1,src) quit:i=""
+   set type=$P(src,".",$L(src,".")-1) set format=$P(src,".",$L(src,"."))
+   if IsUDL=1 && (format="udl") { set Items(type,src)="" }
+   elseif IsUDL=0 && (format="xml") { set Items(type,src)=$LB() }
+ }
+ kill items do githubGetItems(,"isc_zip","",.items)
+ set i="" for { set i=$order(items(i),1,src) quit:i=""
+   set type=$P(src,".",$L(src,".")-1) set format=$P(src,".",$L(src,"."))
+   if IsUDL=1 && (format="udl") { set Items(format,type,src)="" }
+   elseif format="xml" { set Items(format,type,src)=$LB(repos,"isc_zip") }
+ }
+ set src="" for { set src=$order(Items("udl","inc",src)) quit:src=""
+   set ret=$$githubGetSrcPlainText("",,src,.code)
+   if +ret=1 {
+      do UDLtoRtn(.code,.rtnname,.rtnobj) set ret=rtnobj.%Save()
+      if +ret=1 { W "save rtn "_rtnname,! } else { W "fail save rtn "_rtnname,! }
+   } else { W "error get source "_src,! }
+ }
+ set src="" for { set src=$order(Items("udl","mac",src)) quit:src=""
+   set ret=$$githubGetSrcPlainText("nlzv","isc_stat",src,,.code) if +ret=1 {
+     do UDLtoRtn(.code,.rtnname,.rtnobj)
+     set ret=rtnobj.%Save()
+     if +ret=1 { W "save rtn "_rtnname,! } else { W "fail save rtn "_rtnname,! }
+     set ret=rtnobj.Compile("")
+     if +ret=1 { W "compile rtn "_rtnname,! } else { W "fail compile rtn "_rtnname,! }
+   } else { W "error get source "_src,! }
+ }
+ set src="" for { set src=$order(Items("udl","class",src)) quit:src=""
+   set ret=$$githubGetSrcPlainText("nlzv","isc_stat",src,,.code) if +ret=1 {
+     set x=$P(src,"/",$L(src,"/")) set n=$L(x,".") set classname=$P(x,".",1,n-2)
+     do SrcToClass(.code)
+   } else { W "error get source "_src,! }
+ }
+ set src="" for { set src=$order(Items("xml","class",src),1,d) quit:src=""
+   set $LB(owner,repos)=d
+   set ret=$$githubGetSrcPlainText(owner,repos,src,,.code) if +ret=1 {
+   set x=$P(src,"/",$L(src,"/")) set n=$L(x,".") set classname=$P(x,".",1,n-2)
+     do SrcToClass(.code)
+   } else { W "error get source "_src,! }
+ }
+ quit
+#; preferable way to upload and compile source
+LoadGitZip(tmpdir="",enforceUpdateZip=0)
+ do mkTLSCliNull()
+ if '($D(^rOBJ("%Library.zip.0"))&&($D(^rOBJ("%Library.zip.1"))))||(enforceUpdateZip) {
+   set src="_Library.zip.class.xml"
+   set ret=$$githubGetSrcPlainText("nlzv","isc_zip",src,,.code)
+   if $LG(ret,1)=1 {
+     set x=$P(src,"/",$L(src,"/")) set n=$L(x,".") set classname=$P(x,".",1,n-2)
+     do SrcToClass(.code)
+     do ##class(%File).Delete($zu(12)_"stat.install.tmp")
+   } else { W "error get source "_src,! }
+ }
+ set httpreq=##class(%Net.HttpRequest).%New()
+ set httpreq.Server="github.com"
+ set httpreq.SSLConfiguration="nullcli"
+ #;set httpreq.ReadRawMode=1
+ #;set httpreq.WriteRawMode=1
+ set location="/nlzv/isc_stat/archive/master.zip"
+ set httpreq.ResponseStream=##class(%Stream.FileBinary).%New()
+ set fsdlm=$E($zu(12),$L($zu(12)))
+ if tmpdir="" set tmpdir=$zu(12)_"Temp"_fsdlm_"sysstat"
+ if '##class(%File).Exists(tmpdir) { set ret=##class(%File).CreateDirectoryChain(tmpdir) }
+ set zipfile=tmpdir_fsdlm_"sysstat.zip"
+ set ret=httpreq.ResponseStream.LinkToFile(zipfile)
+ set retSend=httpreq.Send("GET",location)
+ if +retSend=0 {
+   kill errorlist do $SYSTEM.Status.DecomposeStatus(retSend,.errorlist)
+   for i=1:1 { set i=$order(errorlist(i),1,text) quit:i=""  W text,! }
+   quit $LB(0,"send request",retSend)
+ }
+ if resp.StatusCode'=200 {
+   W "http status "_resp.StatusCode,!
+   quit $LB(0,"http status",resp.StatusCode)
+ }
+ set zip=##class(%zip).open(zipfile)
+ set zip.TargetDir=tmpdir_fsdlm
+ do zip.unpack()
+ do LoadDir(tmpdir_fsdlm_"isc_stat-master"_fsdlm_"src")
+ do LoadDir(tmpdir_fsdlm_"isc_stat-master"_fsdlm_"dependencies")
+ do RemoveDir(tmpdir)
+ quit $LB(1)
+#; load source from one directory
+#; loading depends whether UDL (unified definition language) is supported
+LoadDir(dir) public {
+ set IsUDL=$$IsUDL^stat.lib
+ set q=##class(%ResultSet).%New("%File:FileSet")
+#; load INC files 1st
+ set ret=q.Execute(dir,"*.inc."_$case(IsUDL,1:"udl",0:"mac"))
+ while q.Next() {
+   set fpn=q.Get("Name")
+   set loaded(fpn)=""
+   do $SYSTEM.OBJ.Load(fpn,"cd",.errorlist)
+ }
+ set ret=q.Execute(dir,"*."_$case(IsUDL,1:"udl",0:"mac"))
+ while q.Next() {
+   set fpn=q.Get("Name")
+   if $D(loaded(fpn))=1 continue
+   set loaded(fpn)=""
+   do $SYSTEM.OBJ.Load(fpn,"cdk")
+ }
+ quit
+}
+#; sysstat patch SYSTEM^%ZSTART
+#; ReadLine() doesn't work
+startupInstall(log=1) public {
+ set macrtn="%ZSTART.MAC"
+ set intrtn="%ZSTAP.INT"
+ set patchcode="do startup^stat"
+ set isrmac=##class(%Routine).Exists("%ZSTART.MAC")
+ if isrmac=0 { set isrint=##class(%Routine).Exists("%ZSTART.IN") }
+ if (isrmac=0)&&(isrint=0) {
+   set rtn=##class(%Routine).%New("%ZSTART.MAC")
+   do rtn.WriteLine("SYSTEM")
+   do rtn.WriteLine(" do startup^stat()")
+   do rtn.WriteLine(" quit")
+   set ret=rtn.Save()
+   if log {
+      if +ret=1 W "created new "_sysrtnmac,!
+   }
+   #;if +ret=0 B
+   set ret=rtn.Compile("dk")
+ }
+ else {
+  if isrmac { set rtn=##class(%Routine).%OpenId(macrtn,,.ret) if +ret=0 { /*B  */ quit $LB(0,"get src",intrtn) } }
+  else { set rtn=##class(%Routine).%OpenId(intrtn,,.ret) if +ret=0 { /*B  */ quit $LB(0,"get src",intrtn) } }
+  do rtn.Rewind()
+#if 1
+  for i=1:1 { set len=32000 set t=rtn.ReadLine(.len,.ret,.eol)
+   if len=-1||(rtn.AtEnd) quit
+   set code(i)=t
+   #;if i>100 B
+  }
+#endif
+#if 0
+  set len="" set t=rtn.Read(.len,.ret)
+  set dlm=rtn.LineTerminator
+  set lines=$L(t,dlm) for i=1:1:lines set code(i)=$P(t,dlm,i)
+#endif
+  set inew=0 set i="" for { set i=$order(code(i),1,t) quit:i=""
+    if $P(t," ",1)="SYSTEM" {
+      set tright=$E(t,7,*)
+      set tnext=code(i+1)
+      set tnextstrip=$zstrip(tnext,"<=>"," ","")
+      for leftskip=1:1 { if $E(tnext,leftskip)'=" " { quit } } set leftskip=leftskip-1
+#; patch is already here
+      if $E(tnextstrip,1,$L(patchcode))=patchcode {
+         set codenew($I(inew))=code(i)
+         set codenew($I(inew))=code(i+1)
+         set i=i+1 continue
+         set patch="is"
+      }
+      elseif $e(tnextstrip,1,2)="#;"||($e(tnext,1,2)="//")||(($e(tnext,1,2)="/*")) {
+        if $F(tnext,patchcode)>0 {
+          set codenew($I(inew))="SYSTEM"
+          set codenew($I(inew))=" "_patchcode
+          set i=i+1 continue
+          set patch="uncomment"
+        }
+      }
+      set codenew($I(inew))="SYSTEM"
+      set codenew($I(inew))=" "_patchcode
+      set codenew($I(inew))=" "_tright
+      set patchdone=1
+      set patch="added"
+      continue
+    }
+    else {
+      set codenew($I(inew))=code(i)
+    }
+  }
+  set ret=rtn.Clear()
+  set i="" for { set i=$order(codenew(i),1,t) quit:i=""  do rtn.WriteLine(t) }
+  set ret=rtn.Save()
+  if +ret=1 set retq=$LB(1,"save")
+  else  set retq=$LB(0,"save",ret)
+  kill rtn
+ }
+ quit retq
+}
+shutdownInstall(log=1)
+ set macrtn="%ZSTOP.MAC"
+ set intrtn="%ZSTOP.INT"
+ set isrmac=##class(%Routine).Exists(macrtn)
+ if isrmac=0 { set isrint=##class(%Routine).Exists(intrtn) }
+ if (isrmac=0)&&(isrint=0) {
+   set rtn=##class(%Routine).%New(macrtn)
+   do rtn.WriteLine("SYSTEM")
+   do rtn.WriteLine(" do shutdown^stat()")
+   do rtn.WriteLine(" quit")
+   set ret=rtn.Save()
+   if log {
+      if +ret=1 { W "created new "_macrtn,! }
+   }
+   #;if +ret=0 B
+   set ret=rtn.Compile("d")
+   if log=1 {
+     if +ret=1 W macrtn_" compiled ok",!
+   }
+ }
+ else {
+  if isrmac { set rtn=##class(%Routine).%OpenId(macrtn,,.ret) }
+  else { set rtn=##class(%Routine).%OpenId(intrtn,,.ret) }
+  for i=1:1 {
+   set t=rtn.ReadLine(.len,.ret,.eol)
+   if len=-1 quit
+   set code(i)=t
+  }
+  set inew=1 set i="" for { set i=$order(code(i),1,t) quit:i=""
+    set codenew(inew)=code(i)
+    if $F(t," ",1)="SYSTEM" {
+      #; B
+    }
+  }
+ }
+ quit
+#; install=1 install=2 uninstall
+#; rtnname %ZSTART or $ZSTOP
+#; patch code "try { do startup^stat } catch { }" "try { do shutdown^stat } catch { }"
+sysInstall(install,rtnname,patchcode) public {
+ set macrtn=rtnname_".MAC"
+ set intrtn=rtnname_".INT"
+ set isrmac=##class(%Routine).Exists(macrtn)
+ if isrmac=0 { set isrint=##class(%Routine).Exists(intrtn) }
+ set comment="// don't edit this line, it is added by sysstat code and it might work incorrectly in case of modification"
+ if (isrmac=0)&&(isrint=0) {
+   set rtn=##class(%Routine).%New(macrtn)
+   do rtn.WriteLine("SYSTEM")
+   do rtn.WriteLine(" do startup^stat()")
+   do rtn.WriteLine(" quit")
+   set method="new"
+   set type="MAC"
+   set ret=rtn.Save()
+   if log {
+      if +ret=1 W "created new "_macrtn,!
+   }
+   #;if +ret=0 B
+   set ret=rtn.Compile("dk")
+ }
+ else {
+   if isrmac { set rtn=##class(%Routine).%OpenId(macrtn,,.ret) if +ret=0 { B  quit $LB(0,"get mac src",macrtn) } }
+   else { set rtn=##class(%Routine).%OpenId(intrtn,,.ret) if +ret=0 { B  quit $LB(0,"get int src",intrtn) } }
+   do rtn.Rewind()
+
+   for i=1:1 { set len=32000 set t=rtn.ReadLine(.len,.ret,.eol)
+     set code(i)=t
+     if len=-1||(rtn.AtEnd) quit
+   }
+
+   set inew=0 set i="" for { set i=$order(code(i),1,t) quit:i=""
+     if $P(t," ",1)="SYSTEM" {
+       set tright=$E(t,7,*)
+       set tnext=code(i+1)
+       set tnextstrip=$zstrip(tnext,"<=>"," ","")
+       for leftskip=1:1 { if $E(tnext,leftskip)'=" " { quit } } set leftskip=leftskip-1
+#; patch is already here
+       if $E(tnextstrip,1,$L(patchcode))=patchcode {
+         if install=1 {
+           set codenew($I(inew))=code(i)
+           set codenew($I(inew))=code(i+1)
+           set patch="is"
+           set i=i+1 continue
+           
+         }
+         elseif install=2 {
+           set codenew($I(inew))=code(i)
+           set codenew($I(inew))="#; "_patchcode
+           set patch="disable"
+           set i=i+1 continue
+         }
+       }
+       elseif $e(tnextstrip,1,2)="#;"||($e(tnext,1,2)="//")||(($e(tnext,1,2)="/*")) {
+         if install=1 {
+           if $F(tnext,patchcode)>0 {
+             set codenew($I(inew))="SYSTEM"
+             set codenew($I(inew))=" "_patchcode_" "_comment
+             set i=i+1 continue
+             set patch="uncomment"
+           }
+         }
+       }
+      
+       set codenew($I(inew))="SYSTEM"
+       if install=1 set codenew($I(inew))=" "_patchcode
+       set codenew($I(inew))=" "_tright
+       set patchdone=1
+       set patch="added"
+       continue
+     }
+     else {
+       set codenew($I(inew))=code(i)
+     }
+   }
+   #;B // before update
+   set ret=rtn.Clear()
+   set i="" for { set i=$order(codenew(i),1,t) quit:i=""  do rtn.WriteLine(t) }
+   set ret=rtn.Save()
+   if +ret=1 set retq=$LB(1,"save")
+   else  set retq=$LB(0,"save",ret)
+   kill rtn kill codenew kill code
+ }
+ #;B // exit
+ quit retq
+}
+ #;
+githubGetSrcApi(owner="nlzv",repos="isc_stat",source,&textcode)
+ set httpreq=##class(%Net.HttpRequest).%New()
+ set httpreq.Server="api.github.com"
+ set httpreq.SSLConfiguration="nullcli"
+ set location="/repos/"_owner_"/"_repos_"/contents/"_source
+ set ret=httpreq.Send("GET",location)
+ set resp=httpreq.HttpResponse
+ if resp.StatusCode=200 {
+   set resp=httpreq.HttpResponse
+   set json=##class(%DynamicObject).%FromJSON(resp.Data)
+   set textcodebase64=json.%Get("content")
+   set listcodebase64=$LFS(textcodebase64,$C(10))
+   set textcode=""
+   set i=0 while $listnext(listcodebase64,i,v) {
+     set x=$SYSTEM.Encryption.Base64Decode(v)
+     set textcode=textcode_x
+   }
+   set textcode=$LFS(textcode,$C(10))
+   quit 1
+ }
+ else { quit $SYSTEM.Status.Error(5001,"http status cpde"_resp.StatusCode) }
+#;
+githubGetItems(owner="nlzv",repos="isc_stat",path="src",&items)
+ set ret=1
+ set httpreq=##class(%Net.HttpRequest).%New()
+ set httpreq.Server="api.github.com"
+ set httpreq.SSLConfiguration="nullcli"
+ set ret=httpreq.Send("GET","/repos/"_owner_"/"_repos_"/contents/"_path)
+ set resp=httpreq.HttpResponse
+ set HttpStatusCode=resp.StatusCode
+ if resp.StatusCode=200 {
+   set cth=$G(resp.Headers("CONTENT-TYPE"))
+   set json=##class(%DynamicObject).%FromJSON(resp.Data)
+   if json.%ClassName(1)="%Library.DynamicArray" {
+     set iter = json.%GetIterator()
+     while iter.%GetNext(.key , .obj ) { set items(key)=obj.%Get("path") }
+   }
+   else { set ret=$SYSTEM.Status.Error(5001,"bad json")}
+ }
+ else { set ret=$SYSTEM.Status.Error(5001,"https status code "_HttpStatusCode) }
+ quit ret
+
+githubGetSrcPlainText(owner,repos,src,tag="master",&textcode) public {
+ set httpreq=##class(%Net.HttpRequest).%New()
+ set httpreq.Server="raw.githubusercontent.com"
+ set httpreq.SSLConfiguration="nullcli"
+ set location="/"_owner_"/"_repos_"/"_tag_"/"_src
+ #;do httpreq.SetHeader("Accept","text/plain")
+ set ret=httpreq.Send("GET",location)
+ if +ret'=1 quit $LB(0,"http send faulure")
+ set resp=httpreq.HttpResponse
+ if resp.StatusCode'=200 quit $LB(0,"http status",resp.StatusCode)
+ set stream=resp.Data
+ do stream.Rewind()
+ set data="" for { set data=data_stream.Read(.len,.ret) quit:+ret'=1||(len'>0) }
+ set textcode=$LFS(data,$C(10))
+ quit $LB(1)
+}
+IsUDL() public {
+ set ztrap="error" do $SYSTEM.OBJ.ExportUDL() quit 1
+error quit 0
+}
+UDLtoRtn(&codelist,&name,&rtn)
+ set rtnname=""
+ set ic=0 set iline=0 while $listnext(codelist,ic,text) {
+   if iline=0 {
+     set t1=$P(text," ",1) set t2=$P(text," ",2) set t3=$P(text," ",3)
+     if $E(t3,1,6)="[Type="&&($E(t3,$L(t3))="]") {
+       set type=$E(t3,7,$L(t3)-1)
+       set rtnname=t2_"."_type
+       set rtn=##class(%Routine).%New(rtnname)
+       W !,"rtnname="_rtnname_", rtn="_rtn,!
+     }
+     elseif t1="ROUTINE"&&(t3="") {
+       set rtnname=t2_".MAC"
+       set rtn=##class(%Routine).%New(rtnname)
+       W !,"rtnname="_rtnname_", rtn="_rtn,!
+     }
+     else {
+       B
+     }
+   }
+   else {
+     if rtnname'="" {
+       do rtn.WriteLine(text)
+       #;W text,!
+     }
+   }
+   set iline=iline+1
+ }
+ quit
+#; load and compile class
+SrcToClass(&codelist)
+ set file=$zu(12)_"stat.install.tmp"
+ open file:("NWSK\UTF8\")
+ use file
+ set ic=0 while $listnext(codelist,ic,text) { W text,! }
+ close file
+ set ret=$SYSTEM.OBJ.Load(file,"ck/nomulticompile")
+ quit
+#; remove directory with the content
+RemoveDir(dir) public {
+ set q=##class(%ResultSet).%New("%File:FileSet")
+ set ret=q.Execute(dir,"*")
+ while q.Next() {
+   set fn=q.Get("Name")
+   set type=q.Get("Type")
+   if type="F" { set ret=##class(%File).Delete(fn) }
+   elseif type="D" { do RemoveDir(fn) }
+ }
+ do ##class(%File).RemoveDirectory(dir)
+ quit
+}
+mkTLSCliNull
+ if '##class(Security.SSLConfigs).%ExistsId("nullcli") {
+   set tls=##class(Security.SSLConfigs).%New()
+   set tls.Name="nullcli"
+   set ret=tls.%Save()
+ }
+ quit
