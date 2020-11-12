@@ -92,7 +92,7 @@ loop
        if i=idxmAllCpuUser set mAllCpuUser=v
      }
    }
-   use log W timestattext_","_stat,! use cmddev
+   use log W timestattext_stat,! use cmddev
    if $G(doTriggers,0) do triggers
  }
  quit
