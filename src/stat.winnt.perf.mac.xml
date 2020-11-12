@@ -133,7 +133,7 @@ initCmd
  set msperfconf=$G(@CtlGlo@("msperf","config"))
  if msperfconf="" { set msperfconf=$zu(12)_"msperf.default.config" set @CtlGlo@("msperf","config")=msperfconf }
  if '##class(%File).Exists(msperfconf) {
-   do genPerfConfigDefault(msperconf)
+   do genPerfConfigDefault(msperfconf)
  }
  open msperfconf:("RS"):1
  if $test {
