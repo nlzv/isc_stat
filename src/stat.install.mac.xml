@@ -57,7 +57,9 @@ LoadGit()
  }
  quit
 #; preferable way to upload and compile source
-LoadGitZip(tmpdir="",enforceUpdateZip=0)
+LoadGitZip(tmpdir="",enforceUpdateZip=0) public {
+ set prod=$P($SYSTEM.Version.GetProduct()," ")
+ if prod="IRIS" { set isiris=1 } else { set isiris=0 }
  do mkTLSCliNull()
  if '($D(^rOBJ("%Library.zip.0"))&&($D(^rOBJ("%Library.zip.1"))))||(enforceUpdateZip) {
    set src="_Library.zip.class.xml"
@@ -94,10 +96,22 @@ LoadGitZip(tmpdir="",enforceUpdateZip=0)
  set zip=##class(%zip).open(zipfile)
  set zip.TargetDir=tmpdir_fsdlm
  do zip.unpack()
+ set libdbdir=$zu(12)_$case(isiris,1:"iris",0:"cache")_"lib"_fsdlm
+ set libdbobj=##class(SYS.Database).%OpenId(libdbdir,,.retOpen)
+ if +retOpen { set libdbro=libdbobj.ReadOnly } else { set libdbro="" }
+ if libdbro=1 {
+   set libdbobj.ReadOnly=0 set retSave=libdbobj.%Save()
+   if +retSave=0 { kill libdbobj quit $LB(0,"error remount lib database as read write") }
+ }
  do LoadDir(tmpdir_fsdlm_"isc_stat-master"_fsdlm_"src")
  do LoadDir(tmpdir_fsdlm_"isc_stat-master"_fsdlm_"dependencies")
  do RemoveDir(tmpdir)
+ if libdbro=1 {
+   set libdbobj.ReadOnly=1 set retSave=libdbobj.%Save()
+   kill libdbro if +retSave=0 { quit $LB(0,"error remount lib databas as read only") }
+ }
  quit $LB(1)
+}
 #; load source from one directory
 #; loading depends whether UDL (unified definition language) is supported
 LoadDir(dir) public {
@@ -115,7 +129,7 @@ LoadDir(dir) public {
    set fpn=q.Get("Name")
    if $D(loaded(fpn))=1 continue
    set loaded(fpn)=""
-   do $SYSTEM.OBJ.Load(fpn,"cdk")
+   do $SYSTEM.OBJ.Load(fpn,"cdk/nomulticompile")
  }
  quit
 }
