@@ -8,7 +8,7 @@ for config is used ^|"%SYS"|SYS("stat","csp")?!
 to do: avoid stat.lib usage]]></Description>
 <IncludeCode>statcsp</IncludeCode>
 <Super>%CSP.SessionEvents</Super>
-<TimeCreated>65700,55452.852593</TimeCreated>
+<TimeCreated>65700,55973.144693</TimeCreated>
 
 <Property name="log">
 <Type>%String</Type>
@@ -928,7 +928,7 @@ set EventClass to stat.csp if there is event class save it for restoring</Descri
  set qcspapp=##class(%ResultSet).%New("Security.Applications:Detail")
  set ret=qcspapp.Execute("*",2)
  while qcspapp.Next() {
-   set type=qcspapp.Get("Type") if '(type\2#2||($F(type,"CSP"))) continue
+   set type=qcspapp.Get("Type") if '((+type=type&&(type\2#2=1))||($F(type,"CSP"))) continue
    set cspapp=qcspapp.Get("Name")
    set EventClass(cspapp)=qcspapp.Get("EventClass")
    set namespace=qcspapp.Get("NameSpace")

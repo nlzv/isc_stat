@@ -747,7 +747,7 @@ ClassMethod install()
  set qcspapp=##class(%ResultSet).%New("Security.Applications:Detail")
  set ret=qcspapp.Execute("*",2)
  while qcspapp.Next() {
-   set type=qcspapp.Get("Type") if '(type\2#2||($F(type,"CSP"))) continue
+   set type=qcspapp.Get("Type") if '((+type=type&&(type\2#2=1))||($F(type,"CSP"))) continue
    set cspapp=qcspapp.Get("Name")
    set EventClass(cspapp)=qcspapp.Get("EventClass")
    set namespace=qcspapp.Get("NameSpace")
