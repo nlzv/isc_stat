@@ -39,8 +39,8 @@ get(prompt,&answer,&offset="",&insert=1,mode="FS")
      #; page dn
      #; home
      #; end
-     #; ctrl-a
-     #; ctrl-e
+     #; double esc
+     elseif $key=$C(27,27) { quit }
      else {
        set answer=$E(answer,1,offset+1)_$C(c)_$E(answer,offset+1,$L(answer))
      }
@@ -49,7 +49,6 @@ get(prompt,&answer,&offset="",&insert=1,mode="FS")
      #; ctrl-a
      if $key=$C(1) { W /CUB(offset) set offset=0 continue }
      #; ctrl-e 
-     #; tab
      elseif $key=$C(5) { set newoffset=$L(answer) if offset'=newoffset { W /CUF(newoffset-offset) set offset=newoffset } continue }
      #; tab search
      elseif $key=$C(9) {
@@ -80,7 +79,11 @@ get(prompt,&answer,&offset="",&insert=1,mode="FS")
        }
      }
      #; backspace
-     elseif $key=$C(127) { 
+     #;                    isc windows terminal       linux terminal
+     #;  backspace         $key=$C(8)                 $C(127)
+     #; ctrl+backspace     $key=$C(127)               $C(8)
+     #; note cltr-h $C(8)
+     elseif $key=$C(127)||($key=$C(8)) { 
        if offset=0 continue
        set offset=offset-1 W /CUB(1)
        set newanswer=$E(answer,1,offset)_$E(answer,offset+2,$L(answer))
@@ -96,6 +99,7 @@ get(prompt,&answer,&offset="",&insert=1,mode="FS")
      else { set $E(answer,offset+1)=$C(c) set offset=offset+1 } continue
    }
  }
+ quit
 getfs(path,&result) public {
  kill result set t=$zsearch(path_"*")
  while t'="" {
