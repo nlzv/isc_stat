@@ -178,7 +178,7 @@ EditMsPerf
  set item($I(item))=$LB("x")_$LB("","exit","quit","menu")
  $$$MenuProc
  goto EditMsPerf
-MsPerfRuntineStartStop
+MsPerfRuntimeStartStop
  if runtimestate=1 { do stop^stat.winnt.perf("stat stui user") }
  elseif runtimestate=0 { do start^stat.winnt.perf(,,,1) }
  quit
