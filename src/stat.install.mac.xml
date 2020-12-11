@@ -61,6 +61,14 @@ LoadGitZip(tmpdir="",enforceUpdateZip=0) public {
  set prod=$P($SYSTEM.Version.GetProduct()," ")
  if prod="IRIS" { set isiris=1 } else { set isiris=0 }
  do mkTLSCliNull()
+ set fsdlm=$E($zu(12),$L($zu(12)))
+ set libdbdir=$zu(12)_$case(isiris,1:"iris",0:"cache")_"lib"_fsdlm
+ set libdbobj=##class(SYS.Database).%OpenId(libdbdir,,.retOpen)
+ if +retOpen { set libdbro=libdbobj.ReadOnly } else { set libdbro="" }
+ if libdbro=1 {
+   set libdbobj.ReadOnly=0 set retSave=libdbobj.%Save()
+   if +retSave=0 { kill libdbobj quit $LB(0,"error remount lib database as read write") }
+ }
  if '($D(^rOBJ("%Library.zip.0"))&&($D(^rOBJ("%Library.zip.1"))))||(enforceUpdateZip) {
    set src="_Library.zip.class.xml"
    set ret=$$githubGetSrcPlainText("nlzv","isc_zip",src,,.code)
@@ -77,7 +85,6 @@ LoadGitZip(tmpdir="",enforceUpdateZip=0) public {
  #;set httpreq.WriteRawMode=1
  set location="/nlzv/isc_stat/archive/master.zip"
  set httpreq.ResponseStream=##class(%Stream.FileBinary).%New()
- set fsdlm=$E($zu(12),$L($zu(12)))
  if tmpdir="" set tmpdir=$zu(12)_"Temp"_fsdlm_"sysstat"
  if '##class(%File).Exists(tmpdir) { set ret=##class(%File).CreateDirectoryChain(tmpdir) }
  set zipfile=tmpdir_fsdlm_"sysstat.zip"
@@ -96,13 +103,6 @@ LoadGitZip(tmpdir="",enforceUpdateZip=0) public {
  set zip=##class(%zip).open(zipfile)
  set zip.TargetDir=tmpdir_fsdlm
  do zip.unpack()
- set libdbdir=$zu(12)_$case(isiris,1:"iris",0:"cache")_"lib"_fsdlm
- set libdbobj=##class(SYS.Database).%OpenId(libdbdir,,.retOpen)
- if +retOpen { set libdbro=libdbobj.ReadOnly } else { set libdbro="" }
- if libdbro=1 {
-   set libdbobj.ReadOnly=0 set retSave=libdbobj.%Save()
-   if +retSave=0 { kill libdbobj quit $LB(0,"error remount lib database as read write") }
- }
  do LoadDir(tmpdir_fsdlm_"isc_stat-master"_fsdlm_"src")
  do LoadDir(tmpdir_fsdlm_"isc_stat-master"_fsdlm_"dependencies")
  do RemoveDir(tmpdir)
