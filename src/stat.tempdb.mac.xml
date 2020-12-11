@@ -1,0 +1,214 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Export generator="Cache" version="25">
+<Routine name="stat.tempdb" type="MAC" languagemode="0"><![CDATA[
+#define DBG 0
+ #; global directory size of global in blocks number
+ #; main entry point 
+ #;   report(logfile)
+ #;   onevent(szinc,delay,logfile)
+ #;   glodir(dirbid,.glosz)
+ #;      dirbid - block number of block directory 
+ #;      glosz(glo)=$Lb(bbn,dbn,bign) bbn bottim, dbn data, big blocks number.
+ #;      O 63:"^^"_dbdir and blksize public variable should be done before call        
+    
+ #; generate report when cachetemp extends more than szinc MB
+ #; delay time in seconds between poll
+ #; logfile default mgr/cachetemp.log
+ #; szinc in MB
+onevent(szinc,delay,logfile)
+ S logfile=$G(logfile,$zu(12)_"cachetemp.log")
+ S dbdir=$zu(12)_"cachetemp"
+ S dirinfo1=$zu(49,dbdir)
+ S blksize=$P(dirinfo1,",",2)
+ S io=$io
+ S lfto=1
+ if '##class(%Library.File).Exists(logfile) { O logfile:("NWS"):lfto }
+ else {  O logfile:("WSA"):lfto }
+ I $T=1 {
+    U logfile W $zdt($h,3)," cachetemp monitor started",!
+    W " number of blocks to expland ",$P(dirinfo1,",",6),!
+ }
+ else { Q  }
+ U io C logfile
+ S h1=$h
+ for {
+   H delay
+   S dirinfo2=$zu(49,dbdir)
+   S h2=$h
+   S fsz1=$P(dirinfo1,",",4)
+   S fsz2=$P(dirinfo2,",",4)
+   S dirinfo=dirinfo2
+   if fsz2-fsz1>szinc { D log($P(dirinfo2,",",7)) S dirinfo1=dirinfo2 }
+ }   
+ Q
+ 
+log(dirglobid)
+ if '##class(%Library.File).Exists(logfile) { O logfile:("NWSA"):lfto }
+ else {  O logfile:("WSA"):lfto }
+ I $T'=1 Q
+ S io=$io U logfile
+ W $zdt(h2,3)_" expansion "_(fsz2-fsz1),!
+ W " ",$zdt(h1,3)," ",fsz1,"M, ",$zdt(h2,3)," ",fsz2,"M",!
+ D doreport
+ U io C logfile
+ Q
+ 
+ #;
+report(logfile)
+ set lfto=1
+ set logfile=$G(logfile,$zu(12)_"tempdb.log")
+ #; stupid overwrite old file
+ open logfile:("NWS"):lfto
+ I $T'=1 B  Q
+ set io=$io use logfile
+ 
+ set product=$P($SYSTEM.Version.GetProduct()," ",1)
+ 
+ if product="IRIS" { set tempdbdir=$zu(12)_"iristemp" }
+ elseif product="Cache" { set tempdbdir=$zu(12)_"cachetemp" }
+
+ set dirinfo=$zu(49,tempdbdir)
+ set dirinfo2=dirinfo
+ set blksize=$P(dirinfo,",",2)
+ W "reports of temp and PPG globals sizes at "_$zdt($h,3),!
+ W "legends: number of blocks bottom ptr, data, bigdata ",!
+ do doreport
+ use io close logfile
+ quit
+
+
+ #; collect info and do report
+doreport
+ open 63:"^^"_tempdbdir
+ kill glosz
+ set dirglobid=$P(dirinfo,",",7)
+ do glodir(dirglobid,.glosz)
+ do reportout
+ #; report
+ set maxjid=$V($ZU(40,2,118),-2,"4o")
+ for jid=0:1:maxjid { 
+    S pid=$zu(61,17,jid) 
+    if pid'=0 { 
+       S ppgsz=$zu(61,33,jid)
+       S ppgptr=$zu(61,25,jid) /* dsid^bid */
+       S ppglodirbid=$P(ppgptr,"^",2)
+       if ppgsz'=0 {
+         #; indexing by used blocks  
+         S ppgblk(ppgsz)=jid
+         K glosz
+         do glodir(ppglodirbid,.glosz)
+         #; report
+         do reportoutppg
+       }
+    }
+ }
+ #;D ppgdir 
+ quit
+
+glodir(dirbid,glosz) [blksize] public { 
+ S bid=dirbid
+ S glosz=$LB(0,0,0) 
+ for  { 
+    V bid
+    #; if there is no nodes in block $V(even) generates error <FUNCTION>
+    #; check data offset againt block header length
+    if $V($zu(40,32,0),0,"4o")<$zu(40,32,10) Q
+    S nextbid=$V($zu(40,32,4),0,"4o")
+    for i=0:1 {
+      S glo=$V(i*2+1,-5)
+      S globid=$V(i*2+2,-5)
+      I glo="" Q
+      S szlist=$$topptrblk(globid)
+      S glosz(glo)=szlist
+      #; summarize all for globals: bottom ptr, data, big data blocks
+      #; and all blocks for given global
+      S an=0 for i2=1:1:3 { S $LI(glosz,i2)=$LI(glosz)+$LI(szlist,i2) S an=an+$LI(szlist,i2) S $LI(glosz,4)=an }
+    }   
+    Q:nextbid=0
+    S bid=nextbid
+    
+ }   
+ Q  
+} 
+ 
+topptrblk(topbid) [blksize] public {
+ S bid=topbid
+ S savedblk=$V(0,0,-blksize)
+ S bptrn=0,bdatan=0,bbign=0
+loop
+ V bid
+ S blktype=$V($zu(40,32,1),0,1)
+ if blktype=6||(blktype=70) {
+   D b1ptr(.bptrn,.bdatan,.bbign)
+ }
+ else { 
+  #; it is not bottom pointer go down 
+  S downbid=$V(2,-5)
+  if +downbid'=0 { S bid=downbid goto loop }  
+ }   
+ #; restore block data in view buffer
+ V 0:0:-blksize:savedblk
+ Q $LB(bptrn,bdatan,bbign)
+}
+ 
+ #; 1st bottom pointer
+b1ptr(bptrn,bdatan,bbign) [blksize] public {
+ S issavedblk=0
+ S bptrn=1,bdatan=0,bbign=0
+loop 
+ for i=0:1 {
+    #; it might be unsafe to use $V(odd,-5) due to <SUBSCRIPT> error for some node, for example PPG
+    #;S ref=$V(i*2+1,-5)
+    S bref=$V(i*2+1,-6)
+    S x=$V(i*2+2,-6)
+    S bdatan=bdatan+1
+    Q:x=""
+    S big=$P(x,",",1),dbid=$P(x,",",2)
+    if big {
+      if issavedblk=0 { S issavedblk=1 S savedblk=$V(0,0,-blksize) }
+      D big(dbid,.bbign)
+    }
+ }
+ S nextbid=$V($zu(40,32,4),0,"4o") if nextbid { V nextbid S bptrn=bptrn+1 goto loop } 
+ if issavedblk V 0:0:-blksize:savedblk
+ Q
+}
+big(bid,bbign) [blksize] public {
+ S savedblk=$V(0,0,-blksize)
+ V bid
+ for i=1:1  {
+   S x=$V(i*2,-6)
+   Q:x="" 
+   S type=$A($E(x))
+   S x=$E(x,3,$L(x))
+   if type=3 { S bbign=bbign+$P(x,",") }
+ }
+ V 0:0:-blksize:savedblk
+ Q
+}
+ #; populate cachetemp
+ #; glo="^CacheTemp" or glo="^||CacheTemp"
+popu(glo,nglo,nk,dlenmin,dlenmax) public {
+ S d=$J("",dlenmax)
+ S dl=dlenmax-dlenmin
+ f i1=1:1:nglo { S g=glo_i1 for i2=1:1:nk { S l=dlenmin+$R(dl) S @g@(i2)=$E(d,1,l) } }
+ Q
+}
+
+
+reportout
+ W " temporary globals",!
+ S g="" for { S g=$O(glosz(g),1,d) Q:g=""
+    W "  "_$LG(d,1)_","_$LG(d,2)_","_$LG(d,3)_","_g,!
+ }
+ Q
+reportoutppg
+ W " PPG jid="_jid_", pid="_pid,", blocks=",ppgsz,", ns=",$zu(61,6,jid),",routine=",$zu(61,5,jid),!
+ S g="" for { S g=$O(glosz(g),1,d) Q:g=""
+    W "  "_$LG(d,1)_","_$LG(d,2)_","_$LG(d,3)_","_g,!
+ }
+ Q
+ 
+
+]]></Routine>
+</Export>
