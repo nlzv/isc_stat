@@ -238,9 +238,110 @@ readlinenext
  set logbuf=logbuf_logread
  goto readlinenext
  quit
-#; replace libs by english version
-installEnglish
+#; replace national perfdat by english
+installEnglishPerfDat(display=0) public {
+ do PerfLibDatSaved(.saved)
+ do PerfLibDatLangId(.PerfLibDat)
+ if $order(saved(""))'="" {
+   if display {
+      W "english only hack using perf*.dat installed",!
+    }
+    quit $LB(0,"already installed")
+ }
+ set langid="" for { set langid=$order(PerfLibDat(langid)) quit:langid=""
+   if langid="009" continue
+   set i="" for { set i=$order(PerfLibDat(langid,i),1,fullfn) quit:i=""
+      set n1=$L(fullfn,"\") set dir=$P(fullfn,"\",1,n1-1) set f1=$P(fullfn,"\",n1)
+      set f2=f1_".saved"
+      set f3=$E(f1,1,5)_"009.dat"
+      set ret1=##class(%File).Rename(dir_"\"_f1,dir_"\"_f2,.err1) if +ret1'=1 goto exit1
+      set ret2=##class(%File).CopyFile(dir_"\"_f3,dir_"\"_f1,.err2) if +ret2'=1 goto exit2
+      if display {
+        W "rename file from "_f1_" to "_f2,!
+        W "copy file from "_f3_" to "_f1,!
+      }
+   }
+ }
+ if display { W "english only hack using perf.*dat files installed",! }
+ quit $LB(1)
+exit1
+ if display {
+   W "error errno="_(-err1)_" rename file "_f1_" to "_f2,!
+   if err1=-5 do AdmCmdMsg()
+ }
+ quit $LB(0,"rename",f1,f2,-err1)
+exit2
+ if display {
+    W "error errno="_(-err2)_" copy file from "_f3_" to "_f1,!
+    if err2=-5 do AdmCmdMsg()
+ }
+ quit $LB(0,"copy",f3,f1,-err2)
+}
+#; restore national perf*.dat
+uninstallEnglishPerfDat(display=0) public {
+ do PerfLibDatSaved(.saved)
+ if $order(saved(""))="" {
+   if display { W "english only hack using perflibdat is not installed",! }
+   quit
+ }
+ set langid="" for { set langid=$order(saved(langid)) quit:langid=""
+   set i="" for { set i=$order(saved(langid,i),1,file) quit:i=""
+     set n=$L(file,"\") set dir=$P(file,"\",1,n-1) set f2=$P(file,"\",n)
+     set n2=$L(f2,".") set f1=$P(f2,".",1,n2-1)
+     set ret1=##class(%File).Delete(dir_"\"_f1,.err1) if +ret1'=1 goto exit1
+     set ret2=##class(%File).Rename(dir_"\"_f2,dir_"\"_f1,.err2) if +ret2'=1 goto exit2
+     if display { W "remove "_f1_", rename "_f2_" to "_f1,! }
+   }
+ }
+ quit $LB(1)
+#; errno=5 access denied
+exit1
+ if display {
+   W "error errno="_(-err1)_" delete file "_f1,!
+   if err1=-5 do AdmCmdMsg()
+ }
+ quit $LB(0,"delete",f1,-err1)
+exit2
+ if display {
+    W "error errno="_(-err2)_" rename file from "_f2_" to "_f1,!
+    if err2=-5 do AdmCmdMsg()
+ }
+ quit $LB(0,"rename",f2,f1,-err2)
+}
+AdmCmdMsg() public {
+ W "run isc session under administrtor account in cmd.exe",!
+ W "ccontrol|iris session <instance>",!
+ W "or",!
+ W ".\[cache|irisdb].exe -s ../mgr",!
  quit
-#; uninstall english version
-uninstallEnglish
+}
+
+PerfLibDatSaved(&saved) public {
+ set windir=$SYSTEM.Util.GetEnviron("windir")
+ set f1=$zsearch(windir_"\system32\perf*.dat.saved")
+ kill saved
+ if f1'="" {
+   set n=$L(f1,"\")
+   while f1'="" {
+     set f2=$P(f1,"\",n) set type=$E(f2,5) set langid=$E(f2,6,8)
+     set saved(langid,type)=f1
+     set f1=$zsearch("")
+   }
+ }
  quit
+}
+PerfLibDatLangId(&PerfLibDatFiles) public {
+ set windir=$SYSTEM.Util.GetEnviron("windir")
+ set f1=$zsearch(windir_"\system32\perf*.dat")
+ kill PerfLibDatFiles
+ if f1'="" {
+   set n=$L(f1,"\")
+   while f1'="" {
+     set f2=$P(f1,"\",n) set type=$E(f2,5) set langid=$E(f2,6,8)
+     set PerfLibDatFiles(langid,type)=f1
+     set f1=$zsearch("")
+   }
+ }
+ set n=0 set langid="" for { set langid=$order(PerfLibDatFiles(langid)) quit:langid=""  set n=n+1 } set PerfLibDatFiles=n
+ quit
+}
