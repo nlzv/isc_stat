@@ -7,9 +7,11 @@
 run(hdate,htime="",logdir,rmstatlogs=1,rmoldpacklogs=1)
  #;B ;begin
  $$$PROCMODTRAP
- set platformtype=$$GeneralPlatform^stat.lib()
+ set platformtype=$$platformtype^stat.lib()
  set platform=$$platform^stat.lib
  if platformtype="unix" { try { do sumask^stat.lib("rw-rw-r--") } catch {} }
+ set prod=$P($SYSTEM.Version.GetProduct()," ")
+ if prod="IRIS" { set isiris=1 } else { set isiris=0 }
  set statlog="stat.log"
  set NL=$$NL^stat.lib
  set CtlGlo=$$CtlGlo^stat.lib
@@ -77,15 +79,15 @@ run(hdate,htime="",logdir,rmstatlogs=1,rmoldpacklogs=1)
  
  #; cache info
  #; cp cache.cpf
- if $G(optcachecpf,1)=1&&(cmdCopy'="") {
+ if $G(iscConfig,1)=1&&(cmdCopy'="") {
     try {
-      set cachecpf="cache.cpf"
-      set cmd=cmdCopy_" "_$SYSTEM.Util.InstallDirectory()_cachecpf_" ."
+      set iscConfigFile=$case(isiris,1:"iris.cpf",0:"cache.cpf")
+      set cmd=cmdCopy_" "_$SYSTEM.Util.InstallDirectory()_iscConfigFile_" ."
       set dev="|CPIPE|" open dev:(cmd:"Q") close dev
     } catch {}
  } 
- if $G(optccon,1)=1&&(cmdCopy'="") {
-    set cconlog="cconsole.log" set cmd=cmdCopy_" "_$zu(12)_cconlog_" ."
+ if $G(optIscMsgLog,1)=1&&(cmdCopy'="") {
+    set iscmsglog=$case(isiris,1:"messages.log",0:"cconsole.log") set cmd=cmdCopy_" "_$zu(12)_iscmsglog_" ."
     try { set dev="|CPIPE|" open dev:(cmd:"Q") close dev } catch {}
     #;if ##class(%File).Exists
  }
@@ -130,8 +132,8 @@ run(hdate,htime="",logdir,rmstatlogs=1,rmoldpacklogs=1)
 #; c:\apl\7-zip\7z a -tzip file.zip file1 file2
 #; which archivator to use
  set cmd=datepacklognamepat
- set cmd=cmd_$case($G(optcachecpf,1),1:" "_cachecpf,:"")
- set cmd=cmd_$case($G(optccon,1),1:" "_cconlog,:"")
+ set cmd=cmd_$case($G(iscConfig,1),1:" "_iscConfigFile,:"")
+ set cmd=cmd_$case($G(optIscMsgLog,1),1:" "_iscmsglog,:"")
  if $G(optmountlog)=1&&($G(mountlog)'="") set cmd=cmd_" "_mountlog
  if $G(optlsblk)=1&&($G(lsblklog)'="") set cmd=cmd_" "_lsblklog
  if $G(optproccpuinfo)=1&&($G(proccpuinfolog)'="") set cmd=cmd_" "_proccpuinfolog
@@ -203,8 +205,8 @@ run(hdate,htime="",logdir,rmstatlogs=1,rmoldpacklogs=1)
      set cmd=""
      #; delete stat logs
      if rmstatlogs=1 { set cmd=" "_datepacklognamepat }
-     if $G(cachecpf)'="" { set cmd=cmd_$case($G(optcachecpf,1),1:" "_cachecpf,:"") }
-     if $G(cconlog)'="" { set cmd=cmd_$case($G(optccon,1),1:" "_cconlog,:"") }
+     if $G(iscConfigFile)'="" { set cmd=cmd_$case($G(iscConfig,1),1:" "_iscConfigFile,:"") }
+     if $G(iscmsglog)'="" { set cmd=cmd_$case($G(optIscMsgLog,1),1:" "_iscmsglog,:"") }
      if $G(mountlog)'="" { set cmd=cmd_$case($G(optmountlog,1),1:" "_mountlog,:"") }
      if $G(lsblklog)'="" { set cmd=cmd_$case($G(optlsblk,1),1:" "_lsblklog,:"") }
      if $G(proccpuinfolog)'="" { set cmd=cmd_$case($G(optproccpuinfo,1),1:" "_proccpuinfolog,:"") }
