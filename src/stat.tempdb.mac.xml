@@ -39,9 +39,9 @@ onevent(szinc,delay,logfile)
    S fsz2=$P(dirinfo2,",",4)
    S dirinfo=dirinfo2
    if fsz2-fsz1>szinc { D log($P(dirinfo2,",",7)) S dirinfo1=dirinfo2 }
- }   
+ }
  Q
- 
+
 log(dirglobid)
  if '##class(%Library.File).Exists(logfile) { O logfile:("NWSA"):lfto }
  else {  O logfile:("WSA"):lfto }
@@ -70,7 +70,7 @@ report(logfile)
  if product="IRIS" { set tempdbdir=$zu(12)_"iristemp" }
  elseif product="Cache" { set tempdbdir=$zu(12)_"cachetemp" }
 #endif
- if tempdbdir="" { W "unable determine tempdbdir",! quit $LB(0,"unable determine tempdbdir) }
+ if tempdbdir="" { W "unable determine tempdbdir",! quit $LB(0,"unable determine tempdbdir") }
  set dirinfo=$zu(49,tempdbdir)
  set dirinfo2=dirinfo
  set blksize=$P(dirinfo,",",2)
