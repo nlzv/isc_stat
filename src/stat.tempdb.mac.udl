@@ -61,10 +61,14 @@ report(logfile)
  set io=$io use logfile
  
  set product=$P($SYSTEM.Version.GetProduct()," ",1)
- 
+#if 1
+ set tempdbid=$zu(173)
+ try { set tempdbdir=$P($zu(49,tempdbid,3),"^",2) } catch { set tempdbdir="" }
+#else
  if product="IRIS" { set tempdbdir=$zu(12)_"iristemp" }
  elseif product="Cache" { set tempdbdir=$zu(12)_"cachetemp" }
-
+#endif
+ if tempdbdir="" { W "unable determine tempdbdir",! quit $LB(0,"unable determine tempdbdir) }
  set dirinfo=$zu(49,tempdbdir)
  set dirinfo2=dirinfo
  set blksize=$P(dirinfo,",",2)
@@ -72,7 +76,7 @@ report(logfile)
  W "legends: number of blocks bottom ptr, data, bigdata ",!
  do doreport
  use io close logfile
- quit
+ quit $LB(1)
 
 
  #; collect info and do report
