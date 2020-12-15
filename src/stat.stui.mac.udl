@@ -31,7 +31,10 @@ MainMenu
 
 #; start stop
 StartStop
- if run=0 { 
+ if run=0 {
+   set logdir=$$logdir^stat.lib
+   if logdir="" { W "error: you need setup stat logs directory in config menu",! quit }
+   elseif '##class(%File).DirectoryExists(logdir) { W "error: doesn't exist stat logs directory "_logdir,! quit }
    do start^stat
    hang 1 
  }
