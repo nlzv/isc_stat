@@ -6,7 +6,7 @@
  #; insert might be preserved between call
  #; mode "FS" walk on file system 
  #; 
-get(prompt,&answer,&offset="",&insert=1,mode="FS")
+get(prompt,&answer,&offset="",&insert=1,mode="FS",&action)
  set answer=$G(answer)
  if $G(offset)="" set offset=$L(answer)
 #; fix incorrect offset
@@ -17,7 +17,7 @@ get(prompt,&answer,&offset="",&insert=1,mode="FS")
  if $L(answer)-offset>0 W /CUB($L(answer)-offset)
  for {
    read *c
-   if c=13 quit
+   if c=13 set action=1 quit
    if c=27 {
      #; delete
      if $key=$C(27,91,51,126) {
@@ -40,7 +40,7 @@ get(prompt,&answer,&offset="",&insert=1,mode="FS")
      #; home
      #; end
      #; double esc
-     elseif $key=$C(27,27) { quit }
+     elseif $key=$C(27,27) { set action=0 quit }
      else {
        set answer=$E(answer,1,offset+1)_$C(c)_$E(answer,offset+1,$L(answer))
      }
