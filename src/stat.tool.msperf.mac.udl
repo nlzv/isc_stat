@@ -1,6 +1,4 @@
-<?xml version="1.0" encoding="UTF-8"?>
-<Export generator="Cache" version="25">
-<Routine name="stat.tool.perfmon" type="MAC" languagemode="0"><![CDATA[
+ROUTINE stat.tool.msperf
  #; select stat from ms perfmon cvs file
  #define UNQUOT(%1) $zstrip(%1,"<>","""","")
  #; based on stat type and instance approch
@@ -88,7 +86,7 @@ typeinst(statnames,&statn,&stattype,&stat,&statinst) public {
  set statn=$L(statnames,",")
  set pdh=$P(statnames,",")
  for i=2:1:statn { 
-   set t=$zstrip($P(statnames,",",i),"<>","""","") 
+   set t=$zstrip($P(statnames,",",i),"<>","""","")
    if t="" continue
    if $E(t,1,2)="\\" {
      set name1=$P(t,"\",4)
@@ -98,6 +96,8 @@ typeinst(statnames,&statn,&stattype,&stat,&statinst) public {
      set name1=$P(t,"\",1)
      set name2=$P(t,"\",2)
    }
+#; type[(instance)]\metric
+   elseif $E(t,1)'="\" && ($L(t,"\")=2) { set name1=$P(t,"\",1) set name2=$P(t,"\",2) }
    else {
      B  ; uknown perfmon format
    }
@@ -175,7 +175,7 @@ statidx(&statnames,&statidx)
      set statidx1(statname)=i
    }
    elseif statdepth=2 {
-     B 
+     B
    }
    else {
      B
@@ -347,5 +347,3 @@ PerfLibDatLangId(&PerfLibDatFiles) public {
  set n=0 set langid="" for { set langid=$order(PerfLibDatFiles(langid)) quit:langid=""  set n=n+1 } set PerfLibDatFiles=n
  quit
 }
-]]></Routine>
-</Export>

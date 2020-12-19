@@ -1,8 +1,6 @@
-<?xml version="1.0" encoding="UTF-8"?>
-<Export generator="Cache" version="25">
-<Routine name="stat.stui.msperfmon" type="MAC" languagemode="0"><![CDATA[
+ROUTINE stat.stui.msperf
 
-#; transform
+#; transform msperf
 select
  W "enter permon csv file name",!
  if $D(^rOBJ("%zreadline")) {
@@ -13,17 +11,18 @@ select
  }
  else { R ">",PerfLog,! }
  if ##class(%File).Exists(PerfLog) {
-   do getHdrFromLog^stat.tool.perfmon(PerfLog,.statnames)
-   do typeinst^stat.tool.perfmon(statnames,.statn,.stattype,.stat,.statinst)
+   do getHdrFromLog^stat.tool.msperf(PerfLog,.statnames)
+   do typeinst^stat.tool.msperf(statnames,.statn,.stattype,.stat,.statinst)
    set selectstattype="" kill selectstat kill selectstatinst
    do selectstat
+   if action="x" quit
    #;B  ; process csv start
    W "enter report file",!
    #; to do here we possibly want the same dir as log file
    set answer=$G(PerfReport)
    do ^%zreadline(">",.answer,.uiOffsetPerfmonReport,.insertPerfMon,"FS")
    set PerfReport=answer W !
-   set ret=$$reportOnTypeInst^stat.tool.perfmon(PerfLog,PerfReport,.selectstattype,.selectstat,.selectstatinst)
+   set ret=$$reportOnTypeInst^stat.tool.msperf(PerfLog,PerfReport,.selectstattype,.selectstat,.selectstatinst)
    if $LG(ret,1)=1 { W "done",! }
    else { W "error "_$LG(ret,2),! }
    #;B  ; process csv end
@@ -49,7 +48,7 @@ selectstat
  W "6) save",!
  W "q) exit stat definition",!
  R ">",action,!
- if action="q" quit
+ if action="q"||(action="x") quit
  if action=1 {
    kill uimapidxtype set type="" set i=0 for  { set type=$order(stattype(type)) quit:type=""
      set i=i+1 set uimapidxtype(i)=type
@@ -63,7 +62,7 @@ selectstattype
    if itype'="" && '$D(stattype(uimapidxtype(itype))) goto selectstattype
    if itype="q" goto selectstat
    if $LL($G(selectstattype))'=1 {
-     W "location # to insert, empty at end)",! R ">",location,!
+     W "location # to insert, empty at the end)",! R ">",location,!
    } else { set location="" }
    if location="" { set selectstattype=selectstattype_$LB(uimapidxtype(itype)) }
    elseif location=1 { set selectstattype=$LB(uimapidxtype(1))_$LG(selectstattype,2,$LL(selectstatype)) }
@@ -89,8 +88,8 @@ selectdetails
         W "4) add instance",!
         W "5) remove instance",!
         W "6) show instances",!
-        W "q) return",!
       }
+      W "q) return",!
       R ">",action,!
       if action="q" goto selectstat
       if action=1 {
@@ -100,13 +99,17 @@ selectdetails
 #else
          set i=0 set m="" kill uimapidxm for { set m=$order(stat(type,m)) quit:m=""  set i=i+1 set uimapidxm(i)=m W i_". "_m,! }
 #endif
-         W "enter comma separated metric #",!
+         W "enter comma separated metric # or * for all in original order",!
          R ">",qm,!
          if qm="" goto selectstat
-         #;B  ; selected metrics
-         set n=$L(qm,",") if n>0 {
-           set ml="" for i=1:1:n { set im=$P(qm,",",i) if im'="" { set m=$G(uimapidxm(im)) if m'="" { set ml=ml_$LB(m) } } }
-           set selectstat(type)=ml
+#; all metrics in original order
+         if qm="*" { set i="" set ml="" for { set i=$order(uimapidxm(i),1,m) quit:i=""  set ml=ml_$LB(m) } set selectstat(type)=ml }
+         else {
+#;B  ; selected metrics
+           set n=$L(qm,",") if n>0 {
+             set ml="" for i=1:1:n { set im=$P(qm,",",i) if im'="" { set m=$G(uimapidxm(im)) if m'="" { set ml=ml_$LB(m) } } }
+             set selectstat(type)=ml
+           }
          }
          goto selectdetails
       }
@@ -121,7 +124,7 @@ selectdetails
       }
       elseif action=3 {
         #;B  ; show metrics
-        set ml=selectstat(type) W "-selected metrics-",!
+        set ml=$G(selectstat(type)) W "-selected metrics-",!
         set n=$LL(ml) for i=1:1:n { W i_". "_$LG(ml,i),! }
         W "--",! goto selectdetails
       }
@@ -149,7 +152,11 @@ selectdetails
    }
    goto selectdetails
  } // action 3
+ elseif action=4 {
+ }
+ elseif action=5 {
+ }
+ elseif action=6 {
+ }
  goto selectstat
  quit
-]]></Routine>
-</Export>

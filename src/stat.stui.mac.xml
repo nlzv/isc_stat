@@ -193,7 +193,7 @@ MsPerfConfigFile
    do get^%zreadline("WebGW log>",.MsPerfConfigFile,.MsPerfConfigFileOffset,.InsertMode,"FS")
  }
  else {
-   R "msperfmon config file>",MsPerfConfigFile W !
+   R "msperf config file>",MsPerfConfigFile W !
  }
  set @CtlGlo@("msperf","config")=$G(MsPerfConfigFile)
  quit
@@ -881,7 +881,7 @@ pButtonsUnpackDir
  do unpack^stat.pButtons(pButtonsHtmlReportFile,pButtonsUnpackDir)
  quit
 msPerfmon
- goto select^stat.stui.msperfmon
+ goto select^stat.stui.msperf
  quit
 #;
 PSOnCPUsUserLimit
@@ -992,7 +992,7 @@ WebGWtoPerfCSV1
    W "do you want load perf in db?",!
    R "Yy1/Nn0>",answer
    W !
-   if "Yy1"[answer { 
+   if "Yy1"[answer {
       set dbload=1 kill ^|"SYSSTAT"|stat.webgwperf.d kill ^|"SYSSTAT"|stat.webgwperf.id
    }
    else {
