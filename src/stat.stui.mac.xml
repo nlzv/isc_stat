@@ -395,7 +395,7 @@ ToolsMenu
  set item($I(item))=$LB(item,"iscps.runtime.settings","isc ps runtime settings","goto:ISCPSRunTimeSettings","menu")
  set item($I(item))=$LB(item,"CPUs.User.Limit","trigger individual processes perf (Tokens,GloRefs,GloUpd,PhyRd) on CPUs user limit above","do:PSOnCPUsUserLimit","menu")
  set item($I(item))=$LB(item,"pButtons.unpack","unpack pButtons","do:pButtonsUnpack","menu")
- if $D(^rOBJ("stat.stui.msperfmon")) set item($I(item))=$LB(item,"","transform ms perfmon csv log","do:msPerfmon","menu")
+ if $D(^rOBJ("stat.stui.msperf")) set item($I(item))=$LB(item,"","transform ms perfmon csv log","do:msPerfmon","menu")
  set item($I(item))=$LB(item,"tool.importCspServerLog","load csp server stat (aka stat.csp) for SQL projection","do:importCspServerLog","menu")
  set item($I(item))=$LB(item,"tool.importWebGWLog","load web gateway log (aka CSP.log) for SQL projection","do:importWebGWLog","menu")
  set item($I(item))=$LB(item,"tool.WebGWtoPerfCSV","web gateway log to perf csv","do:WebGWtoPerfCSV","menu")
