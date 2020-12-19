@@ -1,0 +1,242 @@
+ROUTINE stat.wd
+
+
+ #; WD report based on mgstat log
+ #; WD summary report  time start, time end, duration, wdphase, wMiB, wblks, AveMBytesPS, AveUpdBlks/GloPS
+ #; WD mgstat annotated report add at right wd summary  to the end of phase 5,8
+ #; report - annotated report
+ 
+ #; extract value
+#define EV(%1,%2) $zstrip($P(%1,",",%2),"<>"," ","")
+#define PRECISION(%1,%2) %1*%2\1/%2
+Report(log,report="",SummaryReport="",optjw=0)
+ do $SYSTEM.Process.SetZEOF(1)
+ try { if $$unix^stat.lib do sumask^stat.lib("rw-rw-r--") } catch {}
+ close log open log:("RS"):0.1 if $test'=1 B  quit
+ close report open report:("NWS"):0.1 if $test'=1 close log B  quit
+ if SummaryReport'="" close SummaryReport open SummaryReport:("NWS") if $test'=1 close log,report B  quit
+ set NL=$$NL^stat.lib
+ use report W "date,time,GloUpd,dwdq,phyw,wdq,dwdmptq,wdtmpq,GloUpd/BlkUpd,wdphase,duration,MiB,blks,AveMiB/sec,AveUpdGlo/BlkUpd/sec"
+ use SummaryReport W "timeStart,timeEnd,duration,wdphase,wMiB,wblks"_$case(optjw,1:",jwblks",:"")_",AveMiB/sec,AveGloUpd/BlkUpd/sec",!
+ use log
+ read header
+ read statnames
+ set mgstat=##class(stat.type).%New()
+ do mgstat.initmap(statnames)
+ 
+ try {
+  set iwdphase=mgstat.statnameidx("WDphase")
+  set iwdpass=mgstat.statnameidx("WDpass")
+  set iwdqsz=mgstat.statnameidx("WDQsz")
+  set iwdtmpq=mgstat.statnameidx("WDtmpq")
+  set iwijw=mgstat.statnameidx("WIJwri")
+  set iphyw=mgstat.statnameidx("PhyWrs")
+  set ijw=mgstat.statnameidx("Jrnwrts")
+  set igloupd=mgstat.statnameidx("Gloupds")
+  set idate=mgstat.statnameidx("Date")
+  set itime=mgstat.statnameidx("Time")
+  set ijw=mgstat.statnameidx("Jrnwrts")
+ } catch e { B  }
+ set istat=0
+ #; start of pass it is next stat after last wdphase=8
+ set istart="" set statstart="" 
+ set istatwd5start="" set istatwd5end="" 
+ set istatwd8start="" set istatwd8end=""
+ set statprevpasswd8end="" set istatprevpasswd8end=""
+ set statprev="" set prevwdphase=""
+ set phywprev="" set sumphyw=0
+ set sumgloupd=0 set sumgloupdwd5=0 set sumgloupdwd8=0 set sumblkgloupd=0
+ set wdwqprev="" set wdtmpqprev=""
+ set sumwijw=0
+ set sumjw=""
+ set flagWD5PhaseEnd=0 set flagWD8PhaseEnd=0
+ for {
+   use log read stat quit:$zeof=-1
+   set istat=istat+1 if istat=1 { set stat1st=stat }
+   set date=$$$EV(stat,idate)
+   set time=$$$EV(stat,itime)
+   set wdphase=$zstrip($P(stat,",",iwdphase),"<>"," ","")
+   set gloupd=$zstrip($P(stat,",",igloupd),"<>"," ","")
+   set wijw=$zstrip($P(stat,",",iwijw),"<>"," ","")
+   set phyw=$zstrip($P(stat,",",iphyw),"<>"," ","")
+   set wdwq=$zstrip($P(stat,",",iwdqsz),"<>"," ","")
+   set wdtmpq=$zstrip($P(stat,",",iwdtmpq),"<>"," ","")
+   set jw=$zstrip($P(stat,",",ijw),"<>"," ","")
+#; start wdphase 5
+   if wdphase=5 && ( prevwdphase'=5 ) { set statwd5start=stat set istatwd5start=istat set sumwijw=0 set sumgloupdwd5=0  }
+#; end wdpase 5
+   elseif wdphase'=5 && ( prevwdphase=5 ) { set statwd5end=statprev set istatwd5end=istat-1 set flagWD5PhaseEnd=1 }
+#; start wdphase 8
+   if wdphase=8 && (prevwdphase'=8) {
+     if statprev'="" { set statwd8start=stat set istatwd8start=istat }
+     else { set statwd8start=stat1st set istatwd8start=1 }
+     set sumgloupdwd8=0 set wdq8max=0 set sumjw=0
+   }
+#; end wdphase 8
+   elseif prevwdphase=8 && (wdphase'=8) {
+     set istatwd8end=istat-1  set statwd8end=stat  /*set statwd8end=statprev*/ set flagWD8PhaseEnd=1
+   }
+   set sumphyw=sumphyw+phyw
+   set sumgloupd=sumgloupd+gloupd
+   if wdphase=5 { 
+     set sumgloupdwd5=sumgloupdwd5+gloupd 
+   } 
+   elseif wdphase=8 { 
+     set sumgloupdwd8=sumgloupdwd8+gloupd
+     if wdq8max<wdwq set wdq8max=wdwq
+   }
+   set sumwijw=sumwijw+wijw
+   if wdwq>wdwqprev && (wdwqprev'="") { set dublk=wdwq-wdwqprev }
+   else { set dublk=0 }
+   if wdtmpq>wdtmpqprev && (wdtmpqprev'="") { set dutmpblk=wdtmpq-wdtmpqprev }
+   else { set dutmpblk=0 }
+   set ubpg=$case(gloupd,0:0,:dublk/gloupd)
+   set ugpb=$case(dublk,0:0,:gloupd/dublk)
+   set roundugpb=$$$PRECISION(ugpb,100)
+   set sumblkgloupd=sumblkgloupd+ubpg
+   set sumjw=sumjw+jw
+   
+   if flagWD5PhaseEnd=1 { do phase5end }
+   if flagWD8PhaseEnd=1 { do phase8end }
+   if report'="" {
+      use report
+      W NL
+      W date_","_time_","_gloupd_","_dublk_","_phyw_","_wdwq_","_dutmpblk_","_wdtmpq_","_roundugpb_","_wdphase
+   }   
+   set prevwdphase=wdphase set wdwqprev=wdwq set wdtmpqprev=wdtmpq set statprev=stat
+ }
+ #; log end, not completed phase
+ if wdphase=5 { set istatwd5end=istat set stratwd5=statprev do phase5end if report'="" {use report W NL} } 
+ if wdphase=8 { set istatwd8end=istat set statwd8end=statprev do phase8end if report'="" { use report W NL } }  
+ use 0 close log 
+ if report'="" close report
+ if SummaryReport'="" close SummaryReport
+ quit
+ #; linear time of horolog h1*86400+h2 from date time
+ltime(date,time) public { 
+ if date?2N1"/"2N1"/"4N { set hdate=$zdateh(date,1,,,,,,,,1) /* 10th arg=1 indepentent on locale setting */ }
+ elseif date?4N1"-"2N1"-"2N { set hdate=$zdateh(date,3) }
+ if $L(time,".")=2 { set stime=$P(time,".",1) set pstime=$P(time,".",2)} else { set stime=time set pstime=0 }
+ set hstime=$ztimeh(stime,1)
+ set t=+((hdate*86400+hstime)_"."_pstime)
+ quit t
+}
+txltime(ltime) public {
+ set hi=$P(ltime,".",1)
+ set hp=$P(ltime,".",2)
+ set t=$zdt((hi\86400)_","_(hi#86400),3)_"."_hp
+ quit t
+} 
+phase5end
+ if istatwd5start'="" {
+   set t5start=$$ltime($$$EV(statwd5start,idate),$$$EV(statwd5start,itime))
+ } 
+ if istatwd5end'="" {
+    set t5end=$$ltime($$$EV(stat,idate),$$$EV(stat,itime))
+ }
+ if istatwd5start'="" && (istatwd5end'="") { set dt5=t5end-t5start }
+ else { set dt5="" }
+ set sumwijwmib=sumwijw*2048*128/(1024*1024)+0.5\1
+ use report W ","_dt5_","_sumwijwmib_","_sumwijw
+ if SummaryReport'="" use SummaryReport W $$txltime(t5start)_","_$$txltime(t5end)_","_dt5_",5,"_sumwijwmib_","_sumwijw_$case(optjw,1:","_sumjw,:"")
+ if +dt5'=0 {
+   set avewijwps=sumwijwmib/+dt5+0.5\1 
+   if report'="" use report W ","_avewijwps 
+   if SummaryReport'="" use SummaryReport W ","_avewijwps
+   set wdq5start=$$$EV(statwd5start,iwdqsz)
+   set wdq5end=$$$EV(statwd5end,iwdqsz)
+   set dwdq5=wdq5end-wdq5start
+   if 0 && (sumgloupd'=0){
+     set aveUpdBlkPerGloPS=dwdq5/sumgloupd
+     use report W ","_aveUpdBlkPerGloPS
+     if SummaryReport'="" use SummaryReport W ","_aveUpdBlkPerGloPS
+     set sumgloupd=0
+   }  
+   if dwdq5'=0 {
+      set aveUpdGloPerBlkPS=sumgloupdwd5/dwdq5
+      if aveUpdGloPerBlkPS<1 B
+      set RoundAveUpdGloPerBlkPS=$$$PRECISION(aveUpdGloPerBlkPS,100)
+      if report'="" use report W ","_RoundAveUpdGloPerBlkPS
+      if SummaryReport'="" use SummaryReport W ","_RoundAveUpdGloPerBlkPS
+      set sumgloupd=0
+   }
+ }
+ if SummaryReport'="" use SummaryReport W NL
+ set flagWD5PhaseEnd=0
+ set flagWD5PhaseDelay=1
+ quit
+ #; tstart (past 8 phase) tstart 5 tend 5 tstart 8 start 8 end
+phase8end
+ if istatwd8start="" {  set istatwd8start=1 set statwd8start=stat1st }
+ set t8start=$$ltime($$$EV(statwd8start,idate),$$$EV(statwd8start,itime))
+ set t8end=$$ltime($$$EV(statwd8end,idate),$$$EV(statwd8end,itime))
+ set dt8=t8end-t8start
+ set sumphywmib=sumphyw*8192/(1024*1024)+0.5\1
+ if report'="" use report W ","_dt8,","_sumphywmib_ ","_sumphyw
+ if SummaryReport'="" use SummaryReport W $$txltime(t8start)_","_$$txltime(t8end)_","_dt8_",8,"_sumphywmib_","_sumphyw
+ if dt8'=0 {
+    set avewps=sumphywmib/dt8+0.5\1 
+    if report'="" use report W ","_avewps
+    if SummaryReport'="" use SummaryReport W ","_avewps
+    set wdq8start=$$$EV(statwd8start,iwdqsz)
+    set wdq8end=$$$EV(statwd8end,iwdqsz)
+    set dwdq8=wdq8end-wdq8start
+    if 0 && (sumgloupd'=0 ) {
+       set aveUpdBlkPerGloPS=(dwdq8)/sumgloupd
+       if report'="" use report W ","_aveUpdBlkPerGloPS
+       if SummaryReport'="" use SummaryReport W ","_aveUpdBlkPerGloPS
+    }
+    #;if dwdq8<0 B
+    #; this might be in middle of wdphase 8 end
+    if dwdq8<0 {
+      set dwdq8fix=$$$EV(statprev,iwdqsz)-wdq8start
+      if dwdq8fix>0 set dwdq8=dwdq8fix
+      if dwdq8<0 set dwdq8=wdq8max-wdq8start
+    }
+    if dwdq8<0 B  ; still bad wdq growth during phase 8
+    if dwdq8'=0 {
+       set aveUpdGloPerBlkPS=sumgloupdwd8/dwdq8
+       set RoundAveUpdGloPerBlkPS=$$$PRECISION(aveUpdGloPerBlkPS,100)
+       if report'="" use report W ","_RoundAveUpdGloPerBlkPS
+       if SummaryReport'="" use SummaryReport W ","_RoundAveUpdGloPerBlkPS
+    }
+ }
+ if SummaryReport'="" use SummaryReport W NL
+ set sumwij=0 set sumphyw=0 set flagWD8PhaseEnd=0
+ quit
+
+ #; merge wd report with os disk stat
+MergeOSDisk(wdlog,mergewdlog,disklog,selectdisk,selectstat)
+ open wdlog:("RS")
+ open disklog:("RS")
+ use wdlog
+ use disklog
+ read diskstatenext
+ for {
+   use wdlog read wdstat
+   
+   use diskstat 
+   set diskstat(1)=diskstatnext
+   set i=1 for { 
+     read stat quit:log
+     if $P(stat,",",1)="" set diskstatnext=diskstat
+     set diskstat(i)=diskstat
+     set i=i+1
+   }
+   set t=$P(diskstat(1),",",1)
+   #; decide where include
+   
+   
+ }  
+ quit
+ #; fraction
+FracPrecisionMD(value,precision) 
+ if value<1 && (value>0) {
+   set fraction=$P(value,".",2)
+   set len=$L(fraction) for i=1:1:L { quit:$E(fraction,i)'=0 }
+   set o=i set roundfraction=$E(fraction,o,o+precision-1)
+   if $e(fraction,o+precision)'>5 set roundfractionnew=roundfraction+0.5\1
+   if $L(roundfructionnew)=$L(roundfraction) {
+   } 
+ } 
+ quit

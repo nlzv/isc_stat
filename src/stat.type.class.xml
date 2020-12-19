@@ -1,0 +1,174 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Export generator="Cache" version="25">
+<Class name="stat.type">
+<Super>%RegisteredObject</Super>
+<TimeCreated>64767,54005.029986</TimeCreated>
+
+<Property name="statinfo">
+<Type>%String</Type>
+</Property>
+
+<Property name="log">
+<Description>
+matching class name </Description>
+</Property>
+
+<Property name="dlm">
+<Description>
+delimiter used in stat header</Description>
+</Property>
+
+<Property name="statnameidx">
+<Description>
+map name to index</Description>
+<Type>%Integer</Type>
+<MultiDimensional>1</MultiDimensional>
+</Property>
+
+<Property name="idxstatname">
+<Description>
+index of stat as it match statname</Description>
+<Type>%String</Type>
+<MultiDimensional>1</MultiDimensional>
+</Property>
+
+<Property name="idxnoname">
+<Type>%String</Type>
+<MultiDimensional>1</MultiDimensional>
+</Property>
+
+<Property name="idxSelect">
+<Description>
+index in select to name</Description>
+<Type>%Integer</Type>
+<MultiDimensional>1</MultiDimensional>
+</Property>
+
+<Property name="StatNameSelect">
+<Description>
+stat name to index in select list</Description>
+<Type>%Integer</Type>
+<MultiDimensional>1</MultiDimensional>
+</Property>
+
+<Property name="idxRemapSelect">
+<Description>
+index in select to stat name index in stat</Description>
+<Type>%String</Type>
+<MultiDimensional>1</MultiDimensional>
+</Property>
+
+<Property name="idxSelectExpr">
+<Description>
+expression for select stat name</Description>
+<Type>%String</Type>
+<MultiDimensional>1</MultiDimensional>
+</Property>
+
+<Property name="idxSelectExec">
+<Description>
+exec for expr</Description>
+<Type>%String</Type>
+<MultiDimensional>1</MultiDimensional>
+</Property>
+
+<Property name="idxNoTx">
+<Description>
+no transformation idx stat name</Description>
+<Type>%Integer</Type>
+<MultiDimensional>1</MultiDimensional>
+</Property>
+
+<Property name="StatNameNoTx">
+<Type>%String</Type>
+<MultiDimensional>1</MultiDimensional>
+</Property>
+
+<Method name="initmap">
+<Description>
+dlm default delimiter </Description>
+<FormalSpec>text,dlm=","</FormalSpec>
+<Implementation><![CDATA[
+ set n=$L(text,dlm) for i=1:1:n  {
+   set name=$P(text,dlm,i)
+   set name=$zstrip(name,"<>"," ","")
+   if name'="" { set ..statnameidx(name)=i } else { set ..idxnoname(i)=""}
+   set ..idxstatname(i)=name
+ }
+]]></Implementation>
+</Method>
+
+<Method name="showmapnameid">
+<Implementation><![CDATA[ set name="" for { set name=$order(..statnameidx(name),1,id) quit:name=""  W name_",",id,! }
+]]></Implementation>
+</Method>
+
+<Method name="initmapNoTx">
+<FormalSpec>text,dlm=","</FormalSpec>
+<Implementation><![CDATA[
+ set n=$L(text,dlm) for i=1:1:n {
+   set name=$P(text,dlm,i)
+   set idx=..statnameidx(name) 
+   if idx'="" set ..idxNoTx(idx)=name
+   set ..StatNameNoTx(name)=idx 
+ }
+]]></Implementation>
+</Method>
+
+<Method name="initmapSelect">
+<FormalSpec>text,dlm=","</FormalSpec>
+<Implementation><![CDATA[
+ #;B
+ set n=$L(text,dlm) for i=1:1:n {
+   set name=$P(text,dlm,i)
+   if $L(name,"=")>1 {
+     set expr=$P(name,"=",2)
+     set name=$P(name,"=",1)
+     set idx=""
+     set i%idxSelectExpr(i)=expr
+   } 
+   else { set idx=$G(i%statnameidx(name)) }   
+   set i%StatNameSelect(name)=i
+   set i%idxSelect(i)=name
+   set i%idxRemapSelect(i)=idx 
+   #;W i_","_name,!
+ }
+ #;W "n="_n,!
+ #;B ; start expr
+ set i="" for {
+     set i=$order(i%idxSelectExpr(i),1,expr) quit:i=""
+     set exec=expr
+     set name="" for { 
+        set name=$order(i%statnameidx(name),1,idx) quit:name=""        
+        #;if $G(i%idxSelectExpr(i))'="" continue
+        set exec=$replace(exec,name,"v("_idx_")")
+     } 
+     #;B  ;exec replacement 
+     set i%idxSelectExec(i)=exec 
+ }
+]]></Implementation>
+</Method>
+
+<Method name="getSelectStatNames">
+<Implementation><![CDATA[
+ set statnames=""
+ set i="" for {
+    set i=$order(i%idxSelect(i),1,name) quit:i=""
+    W name,!
+    set statnames=statnames_$case($L(statnames)=0,1:"",:",")_name
+ }
+ W "getSelectStatName()",!
+ W statnames,!
+ quit statnames
+]]></Implementation>
+</Method>
+
+<Method name="initremap">
+<Description>
+??? we might remap and even build derived stat value for original values</Description>
+<FormalSpec>newstatnames</FormalSpec>
+<Implementation><![CDATA[  set n=$L(newstatnames,dlm)
+]]></Implementation>
+</Method>
+</Class>
+</Export>

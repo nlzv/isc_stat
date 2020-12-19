@@ -399,6 +399,7 @@ ToolsMenu
  set item($I(item))=$LB(item,"tool.importCspServerLog","load csp server stat (aka stat.csp) for SQL projection","do:importCspServerLog","menu")
  set item($I(item))=$LB(item,"tool.importWebGWLog","load web gateway log (aka CSP.log) for SQL projection","do:importWebGWLog","menu")
  set item($I(item))=$LB(item,"tool.WebGWtoPerfCSV","web gateway log to perf csv","do:WebGWtoPerfCSV","menu")
+ if $D(^rOBJ("stat.wd")) set item($I(item))=$LB(item,"mgstat wd report","mgstat wd report","do:ToolMgstatWDReport","menu")
  set item($I(item))=$LB(0,"mainmenu","goto main menu","goto:MainMenu","menu")
  set item($I(item))=$LB("x","exit","exit","quit","menu")
  $$$MenuProc
@@ -1010,6 +1011,21 @@ WebGWtoPerfCSV1
    elseif$LG(ret,1)=0 { W "error "_$LG(ret,2) }
  }
  else { B  } ; unimplemented
+ quit
+ToolMgstatWDReport
+ W "generate wd report on mgstat log",!
+ if $D(^rOBJ("%zreadline")) {
+   do get^%zreadline("mgstat log file>",.wdmgstatlog,.wdmgstatlogOffset,.InsertMode,"FS",.action) W ! if $G(action)=0 quit
+   do get^%zreadline("annotated report>",.wdmgstatlogAnnotated,.wdmgstatlogAnnotatedOffset,.InsertMode,"FS",.action) W ! if $G(action)=0 quit
+   do get^%zreadline("summary report>",.wdmgstatlogSummary,.wdmgstatlogSummaryOffset,.InsertMode,"FS",.action) W ! if action=0 quit
+ }
+ else {
+ }
+ToolMgstatWDReportJrn
+ R "journal option Yy1|Nn0>",wdmgstatReportJrn,!
+ if '"Yy1Nn0"[wdmgstatReportJrn goto ToolMgstatWDReportJrn
+ set wdmgstatReportJrn=$case($E(wdmgstatReportJrn,1),"Y":1,"y":1,1:1,"N":0,"n":0,0:0,:0)
+ do Report^stat.wd(wdmgstatlog,wdmgstatlogAnnotated,wdmgstatlogSummary,)
  quit
 ]]></Routine>
 </Export>

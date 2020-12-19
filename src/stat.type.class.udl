@@ -1,0 +1,118 @@
+Class stat.type Extends %RegisteredObject
+{
+
+Property statinfo As %String;
+
+/// matching class name 
+Property log;
+
+/// delimiter used in stat header
+Property dlm;
+
+/// map name to index
+Property statnameidx As %Integer [ MultiDimensional ];
+
+/// index of stat as it match statname
+Property idxstatname As %String [ MultiDimensional ];
+
+Property idxnoname As %String [ MultiDimensional ];
+
+/// index in select to name
+Property idxSelect As %Integer [ MultiDimensional ];
+
+/// stat name to index in select list
+Property StatNameSelect As %Integer [ MultiDimensional ];
+
+/// index in select to stat name index in stat
+Property idxRemapSelect As %String [ MultiDimensional ];
+
+/// expression for select stat name
+Property idxSelectExpr As %String [ MultiDimensional ];
+
+/// exec for expr
+Property idxSelectExec As %String [ MultiDimensional ];
+
+/// no transformation idx stat name
+Property idxNoTx As %Integer [ MultiDimensional ];
+
+Property StatNameNoTx As %String [ MultiDimensional ];
+
+/// dlm default delimiter 
+Method initmap(text, dlm = ",")
+{
+ set n=$L(text,dlm) for i=1:1:n  {
+   set name=$P(text,dlm,i)
+   set name=$zstrip(name,"<>"," ","")
+   if name'="" { set ..statnameidx(name)=i } else { set ..idxnoname(i)=""}
+   set ..idxstatname(i)=name
+ }
+}
+
+Method showmapnameid()
+{
+ set name="" for { set name=$order(..statnameidx(name),1,id) quit:name=""  W name_",",id,! }
+}
+
+Method initmapNoTx(text, dlm = ",")
+{
+ set n=$L(text,dlm) for i=1:1:n {
+   set name=$P(text,dlm,i)
+   set idx=..statnameidx(name) 
+   if idx'="" set ..idxNoTx(idx)=name
+   set ..StatNameNoTx(name)=idx 
+ }
+}
+
+Method initmapSelect(text, dlm = ",")
+{
+ #;B
+ set n=$L(text,dlm) for i=1:1:n {
+   set name=$P(text,dlm,i)
+   if $L(name,"=")>1 {
+     set expr=$P(name,"=",2)
+     set name=$P(name,"=",1)
+     set idx=""
+     set i%idxSelectExpr(i)=expr
+   } 
+   else { set idx=$G(i%statnameidx(name)) }   
+   set i%StatNameSelect(name)=i
+   set i%idxSelect(i)=name
+   set i%idxRemapSelect(i)=idx 
+   #;W i_","_name,!
+ }
+ #;W "n="_n,!
+ #;B ; start expr
+ set i="" for {
+     set i=$order(i%idxSelectExpr(i),1,expr) quit:i=""
+     set exec=expr
+     set name="" for { 
+        set name=$order(i%statnameidx(name),1,idx) quit:name=""        
+        #;if $G(i%idxSelectExpr(i))'="" continue
+        set exec=$replace(exec,name,"v("_idx_")")
+     } 
+     #;B  ;exec replacement 
+     set i%idxSelectExec(i)=exec 
+ }
+}
+
+Method getSelectStatNames()
+{
+ set statnames=""
+ set i="" for {
+    set i=$order(i%idxSelect(i),1,name) quit:i=""
+    W name,!
+    set statnames=statnames_$case($L(statnames)=0,1:"",:",")_name
+ }
+ W "getSelectStatName()",!
+ W statnames,!
+ quit statnames
+}
+
+/// ??? we might remap and even build derived stat value for original values
+Method initremap(newstatnames)
+{
+  set n=$L(newstatnames,dlm)
+}
+
+}
+
