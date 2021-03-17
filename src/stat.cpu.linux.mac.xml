@@ -25,7 +25,7 @@ log(delay="",count="",log="",statmon=0,cpumode)
    set retevent=$SYSTEM.Event.Create(DaemonSignal)
    if retevent'=1 {
      $$$ConLog(daemon_" terminated: failure to create daemon signal "_DaemonSignal)
-     set reason="error craete daemon event"     
+     set reason="error create daemon event"
      goto runexit
    }
 #; register itself in CtlGlo process table
@@ -40,8 +40,29 @@ log(delay="",count="",log="",statmon=0,cpumode)
    set cpumode=$G(@CtlGlo@("cpu","details"),0)
 #; option track dt time to process stat
    set odt=$G(@CtlGlo@("cpu","payload"),0)
+   set CPUsUserLimit=$G(@CtlGlo@("CPUsUserLimit","config"),0)
+   if CPUsUserLimit {
+     set CPUsUserLimitValue=$G(@CtlGlo@("CPUsUserLimit","value"),0)
+     if CPUsUserLimitValue>0 {
+       set sort=$G(@CtlGlo@("CPUsUserLimit","iscpsstat","sorttype"),"T")
+       set limit=$G(@CtlGlo@("CPUsUserLimit","iscpsstat","Bandwidth"))
+       set top=$G(@CtlGlo@("CPUsUserLimit","iscpsstat","TopProcs"))
+       if sort="T" {
+         do addTrigger^stat.lib("allcpu","user",">",CPUsUserLimitValue,"do DynStatToken^stat.iscps(triggervalue"_","_limit_","_top_")")
+       }
+       elseif sort="G" {
+         do addTrigger^stat.lib("allcpu","user",">",CPUsUserLimitValue,"do DynStatGloRef^stat.iscps(triggervalue"_","_limit_","_top_")")
+       }
+       elseif sort="U"{
+         do addTrigger^stat.lib("allcpu","user",">",CPUsUserLimitValue,"do DynStatGloUpd^stat.iscps(triggervalue"_","_limit_","_top_")")
+       }
+       elseif sort="R" {
+         do addTrigger^stat.lib("allcpu","user",">",CPUsUserLimitValue,"do DynStatPhyRd^stat.iscps(triggervalue"_","_limit_","_top_")")
+       }
+     }
+   }
    set stop=0
- }  
+ }
  
  set UtcToLocalShift=$$UtcToLocalShift()
  #; NLO - NL out for case to out to terminal we still need CR NL
@@ -56,18 +77,18 @@ log(delay="",count="",log="",statmon=0,cpumode)
  else {
    set log=$G(log,0)
    if log'=0 {
-      open log:("NWS"):1  
-      if $test'=1 {
-         W "exit error create file "_log,!
-         quit
-      }
+     open log:("NWS"):1
+     if $test'=1 {
+        W "exit error create file "_log,!
+        quit
+     }
    }
-   else { set NLO=$C(13,10) }       
+   else { set NLO=$C(13,10) }
  }
  use log
  set statinfo="cpu stat,host="_$SYSTEM.INetInfo.LocalHostName()
  W statinfo,!
- W $$statnames(odt),! 
+ W $$statnames(odt),!
 
  set cpuadjust=1
  set cpuadjustdt=0.01
@@ -81,32 +102,32 @@ log(delay="",count="",log="",statmon=0,cpumode)
  #; adjust 1st sample to precise second time boundary  
 
  if delay/1=delay {
-   set zts=$zts   
-   set dt=delay-("0."_$P(zts,".",2)#1) 
+   set zts=$zts
+   set dt=delay-("0."_$P(zts,".",2)#1)
    hang dt
    if cpuadjust=1 {
      for { 
-       set ztsf=("0."_$P($zts,".",2))#1 
+       set ztsf=("0."_$P($zts,".",2))#1
        if ztsf>0.5 continue 
        quit
-     } 
-   }  
+     }
+   }
  }
  do loop
-runexit 
+runexit
  if statmon=1 {
    if +$G(%debug("daemon"),0)=1 do $zu(9,"",$zname_" exit reason "_reason)
    do CtlGloSelfProcStop^stat.lib(daemon)
    do procstop^stat.monitor($$$SelfJid,$J,$$$SelfPteuc,daemon)
-   set ret=$SYSTEM.Event.Delete(DaemonSignal)
+   try { set ret=$SYSTEM.Event.Delete(DaemonSignal) } catch {}
    try { lock -@DaemonLock } catch {}
- }  
- quit 
+ }
+ quit
 DaemonError
  set $ztrap=""
  do $zu(9,"",$ZNAME_" exit $ZE="_$ZE)
  goto runexit
- quit  
+ quit
 loop
  set zts=$zts
  read oldstattx#statlen
@@ -122,8 +143,8 @@ loop
       set cpuid=$P(cpuold," ",1) set cpuid=$E(cpuid,4,$L(cpuid))
       set cpuold(icpu)=cpuold
       set t=0 for i=2:1:9 { set t=t+$P(cpuold," ",i) } set uptimeold(icpu)=t 
-   } 
- } 
+   }
+ }
  use procstat:0
  use log
  #; time consumed read and process stat
@@ -132,13 +153,13 @@ loop
  for {
    hang delay-dt
    if delay/1=delay { ; delay is multible of 1 second
-     if cpuadjust=1 {   
-       set spin=0 for { 
-         set ztsf=("0."_$P($zts,".",2))#1 
+     if cpuadjust=1 {
+       set spin=0 for {
+         set ztsf=("0."_$P($zts,".",2))#1
          if ztsf>0.5 continue
-         quit 
+         quit
        }
-     }  
+     }
    }
    use procstat
    read newstattx#statlen
@@ -153,12 +174,12 @@ loop
    set deltauptime=uptimenew-uptimeold
    if deltauptime'=0 {
      for i=2,3,4,6,9,5 { set allcpustat=allcpustat_$case(i,2:"",:",")_($P(cpuallnew," ",i)-$P(cpuallold," ",i)/deltauptime*10000+0.5\1/100) }
-   }  
+   }
    else { set allcpustat=allcpustat_",,,,,,," }
    set cpustat=cpustat_","_allcpustat
    set cpustat=cpustat_NLO
    set allcpustat=$LFS(allcpustat)
-   if cpumode=1 {      
+   if cpumode=1 {
       for icpu=1:1 {
         set cpunew=$P(newstattx,NL,icpu+1)
         set cpunew=$zstrip(cpunew,"<=>"," ")
@@ -175,8 +196,8 @@ loop
           else { set cpustat=cpustat_",,,,,,,"}
         } 
         set cpustat=cpustat_NLO
-      }  
-   }   
+      }
+   }
    set dt=$$dts($zts,zts) 
    use log W cpustatT_$case(odt,1:":"_dt,0:"")_cpustat
    if +count>0 { set istat=istat+1 }
@@ -195,11 +216,11 @@ loop
       set usercpu=$P(allcpustat,",",1)
       if usercpuold'<usercpulimit&&(usercpu<usercpulimit) || (usercpuold>usercpulimit&&(usercpu'<usercpulimit)) {
          set ret=$SYSTEM.Event.MsgSend("^stat.monitor",$LB("limit","usercpu",usercpulimit,usercpu))
-      }  
+      }
    }
    use procstat:0
    use log
-   #; next sample past delay time out   
+   #; next sample past delay time out
    set dt=$$dts($zts,zts)
    #; if action was long use next time of delay
    if dt>delay for { set dt=dt-delay quit:dt<delay }
@@ -211,10 +232,10 @@ loop
  #; and other arguments defined in add/remove trigger list
 Triggers
  new id,limit,op,triggervalue,triggercode
- set op="" for { 
+ set op="" for {
    set op=$order(triggers("allcpu","user",op)) quit:op=""
    if op=">" {
-     set limit="" for { 
+     set limit="" for {
         set limit=$order(triggers("allcpu","user",op,limit)) quit:limit=""
         set id="" for {
           set id=$order(triggers("allcpu","user",op,limit,id),1,triggercode) quit:id=""
@@ -222,7 +243,7 @@ Triggers
             if $LG(allcpustat,1)>limit { set triggervalue=1 }
             else { set triggervalue=0 }
           }
-          if triggervalue'=$G(triggervalold("allcpu","user",op,limit,id)) { 
+          if triggervalue'=$G(triggervalold("allcpu","user",op,limit,id)) {
             try { x triggercode } catch e {
               if $classname(e)="%Exception.SystemException" { set ze=e.AsSystemError() }
             }
@@ -236,9 +257,9 @@ Triggers
  
 start() public {
  set logdir=$G(^SYS("stat","logdir"))
- do CtlGloCheckDaemon^stat.lib($$DaemonName,.pte) 
+ do CtlGloCheckDaemon^stat.lib($$DaemonName,.pte)
  if $order(pte(""))="" { if $SYSTEM.Event.Defined($$DaemonSignal) { do $SYSTEM.Event.Delete($$DaemonSignal) } }
- set CtlGlo=$$CtlGlo^stat.lib 
+ set CtlGlo=$$CtlGlo^stat.lib
  set delay=$G(@CtlGlo@("interval"),1)
  set logdir=$$logdir^stat.lib
  set h=$h set log=$$log^stat.lib(logdir,$$logprefix,h,delay,.count)
@@ -246,8 +267,8 @@ start() public {
  quit
 }  
  #; request daemon to exit
-stop(reason="user") public { 
- set ret=$SYSTEM.Event.Signal($$DaemonSignal,$LB("terminate",reason)) 
+stop(reason="user") public {
+ set ret=$SYSTEM.Event.Signal($$DaemonSignal,$LB("terminate",reason))
  quit ret
 }
 switchlog() public { set ret=$SYSTEM.Event.Signal($$DaemonSignal,$LB("switchlog")) quit }
@@ -257,25 +278,30 @@ DaemonName() public { quit "cpustat" }
 logprefix() public {  quit "stat_cpu" }
 
 SignalHandler
- if command="stop" || ( command="terminate" ) { set reason=$LG(msg,2) close log set stop=1 quit }   
+ if command="stop" || ( command="terminate" ) { set reason=$LG(msg,2) close log set stop=1 quit }
  elseif command="switch log" {
    set lognew=$LI(msg,2)
    close log
    open lognew:("NWS"):10
    if $test'=1 {
-      do $zu(9,"",$ZNAME_" exit fail to create file '"_lognew_"'") 
+      do $zu(9,"",$ZNAME_" exit fail to create file '"_lognew_"'")
       #; send message to monitor ?
-      quit 
-   }    
+      quit
+   }
    use lognew
    W "cpu stat",!
-   W "time,user,nice,system,iowait,steal,idle",! 
+   W "time,user,nice,system,iowait,steal,idle",!
    set log=lognew
-   kill lognew 
- } 
+   kill lognew
+ }
  elseif command="switchlog" { do SwitchLogHandler }
- elseif command="addTrigger" { do addTrigger^stat.lib($LG(msg,2),$LG(msg,3),$LG(msg,4),$LG(msg,5),$LG(msg,6))}
- elseif command="delTrigger" { do delTrigger^stat.lib($LG(msg,2),$LG(msg,3),$LG(msg,4),$LG(msg,5),$LG(msg,6))}
+ elseif command="addTrigger" { do addTrigger^stat.lib($LG(msg,2),$LG(msg,3),$LG(msg,4),$LG(msg,5),$LG(msg,6)) }
+ elseif command="delTrigger" { do delTrigger^stat.lib($LG(msg,2),$LG(msg,3),$LG(msg,4),$LG(msg,5),$LG(msg,6)) }
+ elseif command="getTriggers" {
+   set responsepid=$LG(msg,2)
+   do getSerializedTriggers^stat.lib(.data)
+   set ret=$SYSTEM.Event.Signal(+responsepid,data)
+ }
  quit
 SwitchLogHandler
  close log

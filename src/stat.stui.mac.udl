@@ -12,7 +12,7 @@ ROUTINE stat.stui
  W "?<menu number/letter> ask help about this menu",!,!
  #;new
  set platform=$$platform^stat.lib
- do InitSettings 
+ do InitSettings
  set CtlGlo=$$CtlGlo^stat
 MainMenu
  set run=$$IsRunning^stat()
@@ -36,7 +36,7 @@ StartStop
    if logdir="" { W "error: you need setup stat logs directory in config menu",! quit }
    elseif '##class(%File).DirectoryExists(logdir) { W "error: doesn't exist stat logs directory "_logdir,! quit }
    do start^stat
-   hang 1 
+   hang 1
  }
  elseif run=1 { do stop^stat }
  quit 
@@ -69,7 +69,7 @@ ShowState
  set dmn="ecpclistat" do ShowDaemonState("ecp client stat (summ all ecp connections)")
  set dmn="ecpsrvstat" do ShowDaemonState("ecp server stat (individual ecp connections)")
  set dmn="cstat" do ShowDaemonState("dynamic cstat monitor")
- set dmn="iscpsstat" do ShowDaemonState("dynamic cache pidtab stat")
+ set dmn="iscpsstat" do ShowDaemonState("iscps (dynamic isc process table) stat")
  set dmn="seizestat" do ShowDaemonState("resource seize stat")
  set dmn="winnt" do ShowDaemonState("winnt typescript cpu and disk stat")
  set dmn="iostat" do ShowDaemonState("iostat")
@@ -81,7 +81,7 @@ ShowState
  if stracepi="" {
  }
  else {
- set $LB(jid,pid,pteuc)=mstracepi 
+ set $LB(jid,pid,pteuc)=mstracepi
  set pid=$zu(61,17,stracejid)
     W "rooted strace master",?xJID,stracejid,?xPID,pid,!
  }
@@ -156,7 +156,7 @@ EditConfig
  set item($I(item))=$LB(item)_$LB("","email setting","goto:EditEmailConfig","menu")
  set item($I(item))=$LB(item)_$LB("sftp","sftp setting for upload systat","goto:EditSftpConfig","menu")
  set item($I(item))=$LB(item)_setting("statns")
- set item($I(item))=$LB(item)_$LB("sysstatdbdir","systat database dir","@$$CtlGlo^stat.lib@(""stat"",""dbdir"")","string",$zu(12)_"sysstat")
+ set item($I(item))=$LB(item)_$LB("sysstatdbdir","sysstat database dir","@$$CtlGlo^stat.lib@(""stat"",""dbdir"")","string",$zu(12)_"sysstat")
  if $D(setting("cpuuserlimit")) {
    set item($I(item))=$LB(item)_setting("cpuuserlimit")
  }
@@ -204,11 +204,13 @@ IscPsConfig
  kill item
  set item($I(item))=$LB(item)_$LB("iscpsstat","config run iscps on stat startup",$name(^SYS("stat","iscpsstat")),"bool",0)
  set item($I(item))=$LB(item)_$LB("iscpsStatStartStop","runtime "_$case(runtimestate,1:"stop",0:"start"),"do:IscPsRuntimeStartStop","menu")
- set item($I(item))=$LB(item)_$LB("iscpsstat.inusebufwait","extended inusebufwait info","@$$CtlGlo^stat.lib@(""iscps"",""BufWaitX"")","bool",0)
+ set item($I(item))=$LB(item)_$LB("iscpsstat.inusebufwait","extended inusebufwait info","@$$CtlGlo^stat.lib@(""iscpsstat"",""BufWaitX"")","bool",0)
  set item($I(item))=$LB(item)_$LB("iscpsstat.jobtypes.config","job types active config","@$$CtlGlo^stat.lib@(""iscpsstat"",""JobType"")","bool",0)
  set item($I(item))=$LB(item)_$LB("iscpsstat.jobtypes.runtime","job types active runtime (todo)")
- set item($I(item))=$LB(item)_$LB("iscpsstat.jobtypes.config","cpu cycles proc schedstat config","@$$CtlGlo^stat.lib@(""iscpsstat"",""pscpu"")","bool",0)
- set item($I(item))=$LB(item)_$LB("iscpsstat.jobtypes.runtime","cpu cycles proc schedstat runtime (todo)")
+ if platform="linux" {
+   set item($I(item))=$LB(item)_$LB("iscpsstat.jobtypes.config","cpu cycles proc schedstat config","@$$CtlGlo^stat.lib@(""iscpsstat"",""pscpu"")","bool",0)
+   set item($I(item))=$LB(item)_$LB("iscpsstat.jobtypes.runtime","cpu cycles proc schedstat runtime (todo)")
+ }
  set item($I(item))=$LB(0)_$LB("iscpsstat.uppermenu","return to upper menu","goto:EditConfig","menu")
  $$$MenuProc
  goto IscPsConfig
@@ -391,7 +393,9 @@ ToolsMenu
  set item($I(item))=$LB(item,"SplitSar","split sar file by stat type","goto:ToolSplitSar","menu")
  set item($I(item))=$LB(item,"dbRandomReadTest","db random read test","do:dbRandomReadTest","menu")
  set item($I(item))=$LB(item,"iscps.runtime.settings","isc ps runtime settings","goto:ISCPSRunTimeSettings","menu")
- set item($I(item))=$LB(item,"CPUs.User.Limit","trigger individual processes perf (Tokens,GloRefs,GloUpd,PhyRd) on CPUs user limit above","do:PSOnCPUsUserLimit","menu")
+ if $D(^rOBJ("stat.iscps")) {
+   set item($I(item))=$LB(item,"CPUs.User.Limit","trigger individual processes perf (Tokens,GloRefs,GloUpd,PhyRd) on CPUs user limit above","do:PSOnCPUsUserLimit","menu")
+ }
  set item($I(item))=$LB(item,"pButtons.unpack","unpack pButtons","do:pButtonsUnpack","menu")
  if $D(^rOBJ("stat.stui.msperf")) set item($I(item))=$LB(item,"","transform ms perfmon csv log","do:msPerfmon","menu")
  set item($I(item))=$LB(item,"tool.importCspServerLog","load csp server stat (aka stat.csp) for SQL projection","do:importCspServerLog","menu")
@@ -402,7 +406,7 @@ ToolsMenu
  set item($I(item))=$LB("x","exit","exit","quit","menu")
  $$$MenuProc
  goto ToolsMenu
-
+#; obsoleted
 ISCPSRunTimeSettings
  kill item
  set item($I(item))=$LB(item,"cpuuserlimit","cpu user limit trigger","","menu")
@@ -497,10 +501,10 @@ AskBool(text,valueptr,default) public {
  W text_": "_$$BoolText(opt)
  set answer=""
  set ret=##class(%Prompt).GetString("Yy1/Nn0>",.answer)
- W ! 
+ W !
  if answer="" W "no change",! quit
  if "Yy1"[answer { set val=1 }
- elseif "Nn0"[answer { set val=0  }
+ elseif "Nn0"[answer { set val=0 }
  else {
    W "wrong value",!
    quit
@@ -636,7 +640,7 @@ InitSettings
 
  quit
 
-#if 0 
+#if 0
 
 ShowConfig
  set w=70
@@ -832,7 +836,7 @@ dbRandomReadTestRun
      job dbdir^stat.test.RandomDBRead(dbdir,runid)
      set pid=$zchild
      if pid>0 { set jid=$zu(67,3,pid) set proc(jid)=pid }
-   }  
+   }
  }
  
  set hstart=$h
@@ -884,31 +888,25 @@ msPerfmon
  quit
 #;
 PSOnCPUsUserLimit
-#; design dev
-#if 0
- W "switch it on/off, current=>",!
- W "CPUs user limit >",!
- W "sort by Tokens/GloRef/GlodUpd/PhyRd/none Tt/Gg/Ud/Pp/Nn current="_""_">",!
- W "process number by top/bandwidth Tt/Bb current=>",!
- W "bandwidth percentage current="_""_")>",!
- W "save it permanent (restart) current "_""_">",!
- R "press enter",action
-#endif
  kill item
- set item($I(item))=$LB(item,"cpuuserlimit.use","cpu user limit trigger runtime on/off","CPUuserLimitRuntime","bool",0)
- set item($I(item))=$LB(item,"cpuuserlimit.use","cpu user limit trigger config on/off","CPUuserLimitConfig","bool",0)
- set item($I(item))=$LB(item,"cpuuserlimit.value","CPUs user limit","CPUuserLimitValue","string",80)
- set item($I(item))=$LB(item,"cpuuserlimit.sort","sort by Tokens/GloRef/GlodUpd/PhyRd Tt/Gg/Ud/Rr","CPUuserLimitType","string","T")
- set item($I(item))=$LB(item,"cpuuserlimit.psntop","top processes number (empty no limit)","CPUuserLimitTop","string","")
- set item($I(item))=$LB(item,"cpuuserlimit.psnbandwidth","bandwidth percentage (empty no limit)","CPUuserLimitPerfBandwitdh","string","")
- set item($I(item))=$LB(item,"cpuuserlimit.apply","apply","do:PSOnCPUsUserLimitApply","menu")
+ set item($I(item))=$LB(item,"cpuuserlimit.use","cpu user limit trigger runtime on/off","@$$CtlGlo^stat.lib@(""CPUsUserLimit"",""runtime"")","bool",0)
+ set item($I(item))=$LB(item,"cpuuserlimit.use","cpu user limit trigger config on/off","@$$CtlGlo^stat.lib@(""CPUsUserLimit"",""config"")","bool",0)
+ set item($I(item))=$LB(item,"cpuuserlimit.value","CPUs user limit","@$$CtlGlo^stat.lib@(""CPUsUserLimit"",""value"")","string","")
+ set item($I(item))=$LB(item,"cpuuserlimit.sort","sort by Tokens/GloRef/GlodUpd/PhyRd Tt/Gg/Ud/Rr","@$$CtlGlo^stat.lib@(""CPUsUserLimit"",""iscpsstat"",""sorttype"")","string","T")
+ set item($I(item))=$LB(item,"cpuuserlimit.psntop","top processes number (empty no limit)","@$$CtlGlo^stat.lib@(""CPUsUserLimit"",""iscpsstat"",""TopProcs"")","string","")
+ set item($I(item))=$LB(item,"cpuuserlimit.psnbandwidth","bandwidth percentage (empty no limit)","@$$CtlGlo^stat.lib@(""CPUsUserLimit"",""iscpsstat"",""Bandwidth"")","string","")
+ if $order(@CtlGlo@("daemon","iscpsstat",""))'="" {
+   set item($I(item))=$LB(item,"cpuuserlimit.apply","apply runtime (currently running iscpsstat) trigger setting","do:PSOnCPUsUserLimitApply","menu")
+   set item($I(item))=$LB(item,"cpuuserlimit.runtime.show","show runtime (currently running iscpsstat) triggers","do:PSOnCPUsUserLimitRuntimeShow","menu")
+ }
  set item($I(item))=$LB(0,"cpuuserlimit.return","return upper menu","quit","menu")
  $$$MenuProc
- quit
+ Goto PSOnCPUsUserLimit
 PSOnCPUsUserLimitApply
+ do PSOnCPUsUserLimitLoad
  new cpuuserlimit,platform,ret,type
  set platform=$$platform^stat.lib
- set type=$G(CPUuserLimitType,"T") set cpuuserlimit=$G(CPUuserLimitValue,80) set top=$G(CPUuserLimitTop) set limit=$G(CPUuserLimitPerfBandwitdh)
+ set type=$G(CPUuserLimitType,"T") set cpuuserlimit=$G(CPUuserLimitValue,80) set top=$G(CPUuserLimitTop) set limit=$G(CPUuserLimitPerfBandwidth)
  if platform ="linux" {
    if $zcvt($E(type),"u")="T" {
      if CPUuserLimitRuntime=1 {
@@ -951,6 +949,39 @@ PSOnCPUsUserLimitApply
    W "platform "_platform_"is not supported",!
  }
  set CPUuserLimitRuntimeOld=CPUuserLimitRuntime
+ quit
+PSOnCPUsUserLimitLoad
+ set CPUuserLimitRuntime=$G(@CtlGlo@("CPUsUserLimit","runtime"),0)
+ set CPUuserLimitConfig=$G(@CtlGlo@("CPUsUserLimit","config"),0)
+ set CPUuserLimitValue=$G(@CtlGlo@("CPUsUserLimit","value"))
+ set CPUuserLimitType=$G(@CtlGlo@("CPUsUserLimit","iscpsstat","sorttype"),"T")
+ set CPUuserLimitTop=$G(@CtlGlo@("CPUsUserLimit","iscpsstat","TopProcs"))
+ set CPUuserLimitPerfBandwidth=$G(@CtlGlo@("CPUsUserLimit","iscpsstat","Bandwidth"))
+ quit
+PSOnCPUsUserLimitRuntimeShow
+ new retSend,retWait,msg,data,value,type,name,op,limit,index,triggercode,tag,args,sort,bandwidth,top
+ set retSend=$SYSTEM.Event.Signal("^stat.cpu",$LB("getTriggers",$J))
+ set retWait=$SYSTEM.Event.WaitMsg("")
+ if $LG(retWait)=1 {
+   set msg=$LG(retWait,2) set data=msg
+   if data="" {
+     W "no triggers",!
+   }
+   else {
+     set ipr=0 while $listnext(data,ipr,value) {
+       set type=$LG(value,1) set name=$LG(value,2) set op=$LG(value,3) set limit=$LG(value,4) set index=$LG(value,5) set triggercode=$LG(value,6)
+#; here we might decompose trigger code to semantics
+       set tag=$P(triggercode,"^",1) set tag=$P(tag," ",2) set args=$P(triggercode,"(",2) set args=$P(args,")",1) set bandwidth=$P(args,",",2) set top=$P(args,",",3)
+#if 0
+       W "type="_type_",name="_name_",op='"_op_"',limit="_limit_",index="_index_",triggercode="_triggercode,!
+#endif
+       if tag="DynStatToken" { set sort="Tokens" } elseif tag="DynStatGloRef" { set sort="GloRef" } elseif tag="DynStatGloUpd" { set sort="GloIpd"}
+       elseif tag="DynStatPhyRd" { set sort=PhyRd } else { set sort="" }
+       W "type="_type_",name="_name_",op='"_op_"',limit="_limit_",index="_index_",sort="_sort_",BandwidthPercentage="_bandwidth_",top="_top,!
+     }
+   }
+ }
+ W !
  quit
  #; load csp server statistics
 importCspServerLog
@@ -1006,7 +1037,8 @@ WebGWtoPerfCSV1
      set ret=$$perfCSV^stat.webgwlog(WebGWLog,"",,,dbload)
    }
    if $LG(ret,1)=1 { W "done",! }
-   elseif$LG(ret,1)=0 { W "error "_$LG(ret,2) }
+   elseif$LG(ret,1)=0 { W "error "_$LG(ret,2),! }
+   W !
  }
  else { B  } ; unimplemented
  quit
