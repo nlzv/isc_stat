@@ -115,18 +115,25 @@ LoadGitZip(tmpdir="",enforceUpdateZip=0) public {
 LoadDir(dir) public {
  set IsUDL=$$IsUDL
  set q=##class(%ResultSet).%New("%File:FileSet")
+ if recursive=1 {
+   set ret=q.Execute(dir,"*",,1)
+   while q.Next() {
+     set fpn=q.Get("Name")
+     if ##class(%File).DirectoryExists(fpn) { do LoadDir(fpn,1) }
+   }
+ }
 #; load INC files 1st
- set ret=q.Execute(dir,"*.inc."_$case(IsUDL,1:"udl",0:"mac"))
+ set ret=q.Execute(dir,"*.inc."_$case(IsUDL,1:"udl",0:"xml"))
  while q.Next() {
    set fpn=q.Get("Name")
-   set loaded(fpn)=""
+   #;set loaded(fpn)=""
    do $SYSTEM.OBJ.Load(fpn,"cdk",.errorlist)
  }
- set ret=q.Execute(dir,"*."_$case(IsUDL,1:"udl",0:"mac"))
+ set ret=q.Execute(dir,"*."_$case(IsUDL,1:"udl",0:"xml"))
  while q.Next() {
    set fpn=q.Get("Name")
-   if $D(loaded(fpn))=1 continue
-   set loaded(fpn)=""
+   #;if $D(loaded(fpn))=1 continue
+   #;set loaded(fpn)=""
    do $SYSTEM.OBJ.Load(fpn,"cdk/nomulticompile")
  }
  quit
@@ -392,7 +399,7 @@ githubGetSrcPlainText(owner,repos,src,tag="master",&textcode) public {
  quit $LB(1)
 }
 IsUDL() public {
- set ztrap="error" do $SYSTEM.OBJ.ExportUDL() quit 1
+ set $ztrap="error" do $SYSTEM.OBJ.ExportUDL() quit 1
 error quit 0
 }
 UDLtoRtn(&codelist,&name,&rtn)
