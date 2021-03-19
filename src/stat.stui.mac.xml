@@ -909,29 +909,32 @@ PSOnCPUsUserLimitApply
  new cpuuserlimit,platform,ret,type
  set platform=$$platform^stat.lib
  set type=$G(CPUuserLimitType,"T") set cpuuserlimit=$G(CPUuserLimitValue,80) set top=$G(CPUuserLimitTop) set limit=$G(CPUuserLimitPerfBandwidth)
- if platform ="linux" {
+ if platform="linux" { set DaemonSignal=$$DaemonSignal^stat.cpu.linux }
+ elseif platform="winnt" { set DaemonSignal=$$DaemonSignal^stat.winnt.perf }
+ else { set DaemonSignal="" }
+ if DaemonSignal'="" {
    if $zcvt($E(type),"u")="T" {
      if CPUuserLimitRuntime=1 {
-       set ret=$SYSTEM.Event.Signal($$DaemonSignal^stat.cpu.linux,$LB("addTrigger","allcpu","user",">",cpuuserlimit,"do DynStatToken^stat.iscps(triggervalue"_","_limit_","_top_")"))
+       set ret=$SYSTEM.Event.Signal(DaemonSignal,$LB("addTrigger","allcpu","user",">",cpuuserlimit,"do DynStatToken^stat.iscps(triggervalue"_","_limit_","_top_")"))
      }
      elseif CPUuserLimitRuntime=0 {
-       set ret=$SYSTEM.Event.Signal($$DaemonSignal^stat.cpu.linux,$LB("delTrigger","allcpu","user",">",cpuuserlimit,"do DynStatToken^stat.iscps(triggervalue"_","_limit_","_top_")"))
+       set ret=$SYSTEM.Event.Signal(DaemonSignal,$LB("delTrigger","allcpu","user",">",cpuuserlimit,"do DynStatToken^stat.iscps(triggervalue"_","_limit_","_top_")"))
      }
    }
    elseif $zcvt($E(type),"u")="G" {
      if CPUuserLimitRuntime=1 {
-       set ret=$SYSTEM.Event.Signal($$DaemonSignal^stat.cpu.linux,$LB("addTrigger","allcpu","user",">",cpuuserlimit,"do DynStatGloRef^stat.iscps(triggervalue"_","_limit_","_top_")"))
+       set ret=$SYSTEM.Event.Signal(DaemonSignal,$LB("addTrigger","allcpu","user",">",cpuuserlimit,"do DynStatGloRef^stat.iscps(triggervalue"_","_limit_","_top_")"))
      }
      elseif CPUuserLimitRuntime=0 {
-        set ret=$SYSTEM.Event.Signal($$DaemonSignal^stat.cpu.linux,$LB("delTrigger","allcpu","user",">",cpuuserlimit,"do DynStatGloRef^stat.iscps(triggervalue"_","_limit_","_top_")"))
+        set ret=$SYSTEM.Event.Signal(DaemonSignal,$LB("delTrigger","allcpu","user",">",cpuuserlimit,"do DynStatGloRef^stat.iscps(triggervalue"_","_limit_","_top_")"))
      }
    }
    elseif $zcvt($E(type),"u")="U" {
      if CPUuserLimitRuntime=1 {
-       set ret=$SYSTEM.Event.Signal($$DaemonSignal^stat.cpu.linux,$LB("addTrigger","allcpu","user",">",cpuuserlimit,"do DynStatGloUpd^stat.iscps(triggervalue"_","_limit_","_top_")"))
+       set ret=$SYSTEM.Event.Signal(DaemonSignal,$LB("addTrigger","allcpu","user",">",cpuuserlimit,"do DynStatGloUpd^stat.iscps(triggervalue"_","_limit_","_top_")"))
      }
      elseif CPUuserLimitRuntime=0 {
-       set ret=$SYSTEM.Event.Signal($$DaemonSignal^stat.cpu.linux,$LB("delTrigger","allcpu","user",">",cpuuserlimit,"do DynStatGloUpd^stat.iscps(triggervalue"_","_limit_","_top_")"))
+       set ret=$SYSTEM.Event.Signal(DaemonSignal,$LB("delTrigger","allcpu","user",">",cpuuserlimit,"do DynStatGloUpd^stat.iscps(triggervalue"_","_limit_","_top_")"))
      }
    }
    elseif $zcvt($E(type),"u")="R" {
@@ -943,14 +946,7 @@ PSOnCPUsUserLimitApply
      }
    }
  }
-#if 0 
- elseif platform = "winnt" {
- }
-#endif
- else {
-   W "platform "_platform_"is not supported",!
- }
- set CPUuserLimitRuntimeOld=CPUuserLimitRuntime
+ else { W "platform "_platform_" is not supported",! }
  quit
 PSOnCPUsUserLimitLoad
  set CPUuserLimitRuntime=$G(@CtlGlo@("CPUsUserLimit","runtime"),0)
@@ -962,7 +958,11 @@ PSOnCPUsUserLimitLoad
  quit
 PSOnCPUsUserLimitRuntimeShow
  new retSend,retWait,msg,data,value,type,name,op,limit,index,triggercode,tag,args,sort,bandwidth,top
- set retSend=$SYSTEM.Event.Signal("^stat.cpu",$LB("getTriggers",$J))
+ if platform="linux" { set DaemonSignal=$$DaemonSignal^stat.cpu.linux }
+ elseif platform="winnt" { set DaemonSignal=$$DaemonSignal^stat.winnt.perf }
+ else { set DaemonSignal=""}
+ if DaemonSignal="" W "platform is not supported",! quit
+ set retSend=$SYSTEM.Event.Signal(DaemonSignal,$LB("getTriggers",$J))
  set retWait=$SYSTEM.Event.WaitMsg("")
  if $LG(retWait)=1 {
    set msg=$LG(retWait,2) set data=msg

@@ -31,6 +31,27 @@ log(delay,count,log,statmon=0)
 #; argument overrides systat setting
    set delay=$G(delay,$G(@CtlGlo@("interval"),1))
    set statlog=logdir_"stat.log"
+   set CPUsUserLimit=$G(@CtlGlo@("CPUsUserLimit","config"),0)
+   if CPUsUserLimit {
+     set CPUsUserLimitValue=$G(@CtlGlo@("CPUsUserLimit","value"),0)
+     if CPUsUserLimitValue>0 {
+       set sort=$G(@CtlGlo@("CPUsUserLimit","iscpsstat","sorttype"),"T")
+       set limit=$G(@CtlGlo@("CPUsUserLimit","iscpsstat","Bandwidth"))
+       set top=$G(@CtlGlo@("CPUsUserLimit","iscpsstat","TopProcs"))
+       if sort="T" {
+         do addTrigger^stat.lib("allcpu","user",">",CPUsUserLimitValue,"do DynStatToken^stat.iscps(triggervalue"_","_limit_","_top_")")
+       }
+       elseif sort="G" {
+         do addTrigger^stat.lib("allcpu","user",">",CPUsUserLimitValue,"do DynStatGloRef^stat.iscps(triggervalue"_","_limit_","_top_")")
+       }
+       elseif sort="U"{
+         do addTrigger^stat.lib("allcpu","user",">",CPUsUserLimitValue,"do DynStatGloUpd^stat.iscps(triggervalue"_","_limit_","_top_")")
+       }
+       elseif sort="R" {
+         do addTrigger^stat.lib("allcpu","user",">",CPUsUserLimitValue,"do DynStatPhyRd^stat.iscps(triggervalue"_","_limit_","_top_")")
+       }
+     }
+   }
  }
  else {
    if $G(log)'="" { open log:("NWS"):1 if $test { use log } }
@@ -123,7 +144,15 @@ SignalHandler
    }
  }
  elseif cmd="addTrigger" { do addTrigger($LG(msg,2),$LG(msg,3),$LG(msg,4),$LG(msg,5),$LG(msg,6)) }
- elseif cmd="delTrigger" { do delTrigger($LG(msg,2),$LG(msg,3),$LG(msg,4),$LG(msg,5),$LG(msg,6) )}
+ elseif cmd="delTrigger" { do delTrigger($LG(msg,2),$LG(msg,3),$LG(msg,4),$LG(msg,5),$LG(msg,6)) }
+ elseif cmd="getTriggers" {
+   set responsepid=$LG(msg,2)
+   #;do $zu(9,"",$ZNAME_" debug signal getTriggers responsepid="_responsepid,0,0)
+   do getSerializedTriggers^stat.lib(.data)
+   #;do $zu(9,"",$ZNAME_" debug signal getTriggers SerializedTriggers="_$L(data),0,0)
+   set ret=$SYSTEM.Event.Signal(+responsepid,data)
+   #;do $zu(9,"",$ZNAME_" debug signal getTriggers sent response",0,0)	 
+ }
  quit
 #; make default msperfmon config if there is no config, open cpipe,build metric index
 #; loghdrtext
@@ -139,7 +168,7 @@ initCmd
    set i=1 for { read t quit:$zeof=-1  set conftext(i)=t set i=i+1 }
    close msperfconf use 0
  }
- else { B  set retInitCmd=$LB(0,"open failure perfmon config file",msperfconf) quit }
+ else { set retInitCmd=$LB(0,"open failure perfmon config file",msperfconf) quit }
  set cmddev="|CPIPE|typeperf"
  set cmd="""echo | chcp 437 | typeperf.exe -si "_delay_$case($G(count)="",1:"",:" -sc "_count)_" -cf " _msperfconf_""""
  open cmddev:(cmd:"QR"):1
@@ -157,7 +186,9 @@ initCmd
    set retInitCmd=$LB(0,"pdhcsv 2nd line no signature ") B  quit
  }
  set hdrlist=$LFS(texthdr2)
- set i=0 set hdrlist2="" while $listnext(hdrlist,i,v) {
+ set idxmAllCpuUser=""
+ set ilp=0 set i=0 set hdrlist2="" while $listnext(hdrlist,ilp,v) {
+   set i=i+1
    if $E(v,*)="""" set v=$E(v,1,$L(v)-1)
    if $E(v,1)="""" set v=$E(v,2,*)
 #; strip host name
@@ -404,6 +435,7 @@ triggers
           if triggervalue'=$G(triggervalold("allcpu","user",op,limit,id)) { 
             try { x triggercode } catch e {
               if $classname(e)="%Exception.SystemException" { set ze=e.AsSystemError() }
+              do $zu(9,"",$ZNAME_" triggers $ZE="_$ZE)
             }
           }
           set triggervalold("allcpu","user",op,limit,id)=triggervalue
@@ -420,8 +452,7 @@ addTrigger(stattype="allcpu",statname="user",op=">",limit,triggercode) [doTrigge
    set triggers(stattype,statname,op,limit,i)=triggercode
    set doTriggers=1
    quit
- } catch e {
- }
+ } catch e { do $zu(9,"",$ZNAME_" addTrigger $ZE="_$ZE) }
 }
 delTrigger(stattype="allcpu",statname="user",op=">",limit,triggercode) [doTriggers,triggers] public {
  if stattype="" { kill triggers }
