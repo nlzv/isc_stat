@@ -183,7 +183,7 @@ EditMsPerf
  goto EditMsPerf
 MsPerfRuntimeStartStop
  if runtimestate=1 { do stop^stat.winnt.perf("stat stui user") }
- elseif runtimestate=0 { do start^stat.winnt.perf(,,,1) }
+ elseif runtimestate=0 { do start^stat.winnt.perf() }
  quit
 MsPerfConfigFile
  set MsPerfConfigFile=$G(@CtlGlo@("msperf","config"))
