@@ -114,7 +114,7 @@ LoadGitZip(tmpdir="",enforceUpdateZip=0) public {
 }
 #; load source from one directory
 #; loading depends whether UDL (unified definition language) is supported
-LoadDir(dir) public {
+LoadDir(dir,recursive=0) public {
  set IsUDL=$$IsUDL
  set q=##class(%ResultSet).%New("%File:FileSet")
  if recursive=1 {
