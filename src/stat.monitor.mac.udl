@@ -118,7 +118,7 @@ run()
  set cstat=$G(^SYS("stat","cstat"),0) if cstat=1 { do start^stat.cstat }
  set iscpsstat=$G(^SYS("stat","iscpsstat"),0) if iscpsstat=1 { do start^stat.iscps }
  set seizestat=$G(^SYS("stat","seizestat"),0) if seizestat=1 { do start^stat.seize }
- set issyserr=$G(^SYS("stat","issyserr"),0) if issyserr=1&&($D(^rOBJ("stat.issyslog"))) { do start^stat.issyslog() }
+ set issyserr=$G(^SYS("stat","issyserr","config"),0) if issyserr=1&&($D(^rOBJ("stat.issyslog"))) { do start^stat.issyslog() }
  
  set emaildaemon=$G(@CtlGlo@("email"),0)
  if emaildaemon=1 { do start^stat.email(1) }
