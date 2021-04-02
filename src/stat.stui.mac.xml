@@ -78,6 +78,14 @@ ShowState
  set dmn="vmstat" do ShowDaemonState("vmstat")
  set dmn="winnt.perf" do ShowDaemonState("windows system performance")
  try { set dmn=$$DaemonName^stat.issyslog do ShowDaemonState("issyslog system errors log (SYSLOG)") } catch {}
+ try {
+   if $D(^rOBJ("stat.root")) {
+     set DaemonEvent=$$DaemonEvent^stat.root if $SYSTEM.Event.Defined(DaemonEvent) {
+        set retSend=$SYSTEM.Event.Signal(DaemonEvent,$LB("get process info",$J)) set retSignal=$SYSTEM.Event.WaitMsg("",-1)
+        if $LG(retSignal,1) { set msg=$LG(retSignal,2) set uc=$LG(msg,1),jid=$LG(msg,2),pid=$LG(msg,3) W "root helper daemon",?xJID,jid,?xPID,pid,! }
+     }
+   }
+ } catch { $$$MsgLog($ZNAME_" get process info root daemon error $ZE="_$ZE,$$$MsgLogWarn) }
 #if 0
 #; master for rooted processes
  set mstracepi=$G(^SYS("stat","strace","pi"))

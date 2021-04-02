@@ -1,0 +1,255 @@
+ROUTINE stat.root
+#include stat
+#define DEBUG 0
+#; start root daemon helper
+startDaemon() public {
+ set osusername=$zu(61,11,$zu(61))
+ if $SYSTEM.Event.Defined($$DaemonEvent) {
+   do $zu(9,"",$ZNAME_" already running" ,0,1)
+ }
+ job daemon
+}
+#; stop root daemon helper
+stopDaemon() public {
+ set event=$$DaemonEvent
+ if $SYSTEM.Event.Defined($$DaemonEvent) {
+   set ret=$SYSTEM.Event.Signal(event,$LB("terminate"))
+ }
+}
+ #; main daemon entry point
+daemon()
+ set $ztrap="DaemonError"
+ set osusername=$zu(61,11,$zu(61))
+ set DaemonEvent=$$DaemonEvent
+ set ret=$SYSTEM.Event.Create(DaemonEvent)
+ if +ret=0 do $zu(9,"",$ZNAME_" failed to start due to unable to create event",0,1) quit
+ do $zu(9,"",$ZNAME_" helper to execute os command on root privilege, osusername="_osusername,0,0)
+ for {
+   set retSignal=$SYSTEM.Event.WaitMsg(DaemonEvent)
+   if $LG(retSignal,1) {
+     set msgdata=$LG(retSignal,2) set cmd=$LG(msgdata,1)
+     if cmd="terminate" quit
+     do DaemonSignalHandler
+   }
+ }
+daemonExit
+ set ret=$SYSTEM.Event.Delete(DaemonEvent)
+ do $zu(9,"",$ZNAME_" exit",0,0)
+ quit
+DaemonError
+ set $ztrap="" W $zu(9,"",$ZNAME_" error $ZE="_$ZE,0,1) goto daemonExit
+DaemonEvent() public { quit "^"_$ZNAME }
+DaemonEventClear() public { set ret=$SYSTEM.Event.Delete($$DaemonEvent) }
+DaemonSignalHandler
+ if cmd="get process info" {
+   set pid=+$LG(msgdata,2) set retSend=$SYSTEM.Event.Signal(pid,$LB($$$SelfPteuc,$$$SelfJid,$J))
+ }
+ elseif cmd="gcore" { do gcoreHandler() }
+ quit
+#; start new process as root with given entry point and arguments
+newDaemonApi(code,args...)
+ quit
+newDaemon()
+ quit
+#; api to generate core dump
+gcoreapi(pid,prefix,CoreDumpFilter,&coreout,&error,timeout=-1) public {
+ kill coreout kill error
+ set ret=$SYSTEM.Event.Signal($$DaemonEvent,$LB("gcore",$J,pid,prefix,CoreDumpFilter))
+ set retSignal=$SYSTEM.Event.WaitMsg("",timeout)
+ if $LG(retSignal,1)=1 {
+   set msgdata=$LG(retSignal,2)
+   set coreloglist=$LG(msgdata,1)
+   set errlist=$LG(msgdata,2)
+   set ilp=0 while $listnext(coreloglist,ilp,v) { set coreout($I(coreout))=v }
+   set ilp=0 while $listnext(errlist,ilp,v) { set error($I(error))=v }
+ }
+ quit
+}
+#; generate core on linux in rooted process
+gcoreHandler()
+ new retpid,corepid,prefix,CoreDumpFilter
+ set retpid=$LG(msgdata,2)
+#; here might be security check if process has right to use stat.root
+ set corepid=$LG(msgdata,3)
+ set prefix=$LG(msgdata,4)
+ set CoreDumpFilter=$LG(msgdata,5)
+ job gcoreProc(retpid,corepid,prefix,CoreDumpFilter)
+ quit
+#; start new process to call gcore()
+gcoreProc(retpid,corepid,prefix,CoreDumpFilter) public {
+ set $ztrap="gcoreProcError"
+#if $$$DEBUG=1
+ do $zu(9,"",$ZNAME_" gcore() retpid="_retpid,0,0)
+#endif
+ do gcore(corepid,prefix,CoreDumpFilter,.coreout,.error)
+#if $$$DEBUG=1
+ do $zu(9,"",$ZNAME_" gcore() completed",0,0)
+#endif
+ set coreloglist="" set i="" for { set i=$order(coreout(i),1,v) quit:i=""  set coreloglist=coreloglist_$LB(v) }
+ set errlist="" set i="" for { set i=$order(error(i),1,v) quit:i=""  set errlist=errlist_$LB(v) }
+ set ret=$SYSTEM.Event.Signal(retpid,$LB(coreloglist,errlist))
+#if $$$DEBUG=1
+ do $zu(9,"",$ZNAME_" gcore() send result ret="_ret,0,0)
+#endif
+ quit
+gcoreProcError
+ set $ztrap="" do $zu(9,"",$ZNAME_" gcore() $ZE="_$ZE,1,1)
+ quit
+}
+ #; generate not destructive core for given pid
+ #; CoreDumpFilter value in hex you want
+ #; if you want shared memory dump use filter 0x7f
+ #; coreout log of gcore output
+gcore(pid,prefix="",CoreDumpFilter="",&coreout,&error) public {
+ set eof=$SYSTEM.Process.SetZEOF(1)
+ #;set $ztrap="gcoreError"
+ kill error
+ if CoreDumpFilter'="" {
+   set dev="/proc/"_pid_"/coredump_filter"
+   open dev:("RK\RAW\"):1 if $test=1 {
+     set io=$io use dev read CoreDumpFilterSaved use io close dev
+     set CoreDumpFilterSaved="0x"_$zstrip(CoreDumpFilterSaved,"<","0","")
+     if CoreDumpFilterSaved'=CoreDumpFilter {
+       open dev:("WK\RAW\"):1
+       if $test=1 {
+         set io=$io use dev
+         write CoreDumpFilter
+         use io close dev
+       }
+       else { set error($I(error))="fail update core dump filter "_CoreDumpFilter }
+     }
+   }
+#; failure to read CoreDumpFilter for targer process
+   else { set error($I(error))="fail to get core dump filter" }
+ }
+ set cpipe="|CPIPE|gcore"
+ if prefix="" set prefix=$zu(12)_"core"
+ open cpipe:(/COMMAND="gcore":/ARGS="-o",prefix,pid):1
+ kill coreout
+ if $test=1 { use cpipe for { read t quit:$zeof=-1  set coreout($I(gcoreout))=t } }
+ use io
+ close cpipe
+ if CoreDumpFilter'=""&&(CoreDumpFilterSaved'=CoreDumpFilter) {
+   open dev:("WK\RAW\"):1
+   if $test=1 {
+     set io=$io use dev
+     write CoreDumpFilterSaved
+     use io close dev
+   }
+   else { set error($I(error))="fail restore core dump filter "_CoreDumpFilterSaved }
+ }
+ do $SYSTEM.Process.SetZEOF(eof)
+ quit
+}
+gcoreError
+ set $ztrap=""
+ set error($I(error))="$ZE="_$ZE
+ do $zu(9,"",$ZNAME_" $ZE="_$ZE,1,1)
+ quit
+test()
+ D $zu(9,"",$ZNAME_" os username="_$zu(61,11,$zu(61)))
+ for { h 1}
+ quit
+#; ZAUTHENTICATE handlers
+#; usage in ZAUTHENTICATE.MAC
+#;ZAUTHENTICATE(ServiceName,Namespace,Username,Password,Credentials,Properties) public {
+#; try { set ret=$$ZAUTHENTICATE^stat.root(.ServiceName,.Namespace,.Username,.Password,.Credentials,.Properties) }
+#; catch {/*log error*/}
+#; // your code
+#; quit ret
+#;}
+#;GetCredentials(ServiceName,Namespace,Username,Password,Credentials) public {
+#; try {  set ret=$$GetCredentials^stat.root(.ServiceName,.Namespace,.Username,.Password,.Credentials) }
+#; catch {/*log error*/}
+#; // your code
+#; quit ret // if you have no your code
+#;}
+#include %occErrors
+#define ZAUTHDEBUG 0
+ZAUTHENTICATE(ServiceName,Namespace,Username,Password,Credentials,Properties) public {
+ set $ztrap="error"
+ set msg="ZAUTHENTICATE"
+ set ret=$SYSTEM.Status.Error($$$AccessDenied)
+ if $G(Username)="root" {
+   set ret=1
+   set Properties("Roles")="%All"
+   set Namespace="%SYS"
+   set Properties("Namespace")="%SYS"
+   try { set user=##class(Security.Users).%OpenId("root") }
+   catch {
+      set user=""
+#if $$$ZAUTHDEBUG=1
+      set msg($I(msgid))="$ZE="_$ZE
+      set msg($I(msgid))="namespace="_$znspace
+#endif
+   }
+   if $isobject(user) {
+     if user.NameSpace'="%SYS" {
+       set user.NameSpace="%SYS"
+       set retsave=user.%Save()
+#if $$$ZAUTHDEBUG=1
+       set msg($I(msgid))="fix namespace to %SYS"
+#endif
+     }
+   }
+ }
+#if $$$ZAUTHDEBUG=1
+ set msg($I(msgid))="UserName="_$G(Username)
+ set msg($I(msgid))="Password="_$G(Password)
+ set msg($I(msgid))="ServiceName="_$G(ServiceName)
+ set msg($I(msgid))="Namespace="_$G(Namespace)
+ set msg($I(msgid))="return="_$SYSTEM.Status.GetErrorText(ret)
+ do logzauth(.msg)
+#endif
+ quit ret
+error
+ set $ztrap="" do $zu(9,"",$ZNAME_" $ZE="_$ZE) quit 0
+}
+
+GetCredentials(ServiceName,Namespace,Username,Password,Credentials) public {
+ set $ztrap="error"
+ set ret=$SYSTEM.Status.Error($$$GetCredentialsFailed)
+ 
+ set msg="GetCredentials"
+ set osusername=$zu(61,11,$zu(61))
+ if osusername="root" {
+    set Username="root"
+    set Namespace="%SYS"
+    set Password="password"
+#; create user record
+    set ret=1
+ }
+#if $$$ZAUTHDEBUG=1
+ kill msg set msg=$ZNAME_" GetCredential exit"
+ set msg($I(msgid))="OSUserName($zu(61,11))="_osusername
+ set msg($I(msgid))="UserName="_$G(Username)
+ set msg($I(msgid))="Password="_$G(Password)
+ set msg($I(msgid))="Namespace="_$G(Namespace)
+ set msg($I(msgid))="ServiceName="_$G(ServiceName)
+ set msg($I(msgid))="return="_$SYSTEM.Status.GetErrorText(ret)
+ do logzauth(.msg)
+#endif
+ quit ret
+error
+ set $ztrap="" do $zu(9,"",$ZNAME_" $ZE="_$ZE) quit ret
+}
+ChangePassword(Username,NewPassword,OldPassword,Status) public {
+#if $$$ZAUTHDEBUG=1
+ set msg="ChangePassword"
+ set msg($I(msgid))="UserName="_Username
+ set msg($I(msgid))="Password="_Password
+ 
+ set ret=1
+ set msg($I(msgid))="return="_ret
+ do logzauth(.msg)
+#endif
+ quit 0
+}
+logzauth(&msg)
+ set log=$zu(12)_"stat_root_zauthenticate.log"
+ if ##class(%File).Exists(log) { open log:("WSA"):1 if '$test { quit } } else { open log:("WSN"):1 if '$test { quit } }
+ set io=$io use log
+ set logmsg=$zdt($h,3)_","_$ZU(61)_","_$J_","_$G(msg)_$C(13,10)
+ set i="" for { set i=$order(msg(i),1,d) quit:i=""  set logmsg=logmsg_" "_d_$C(13,10) }
+ W logmsg use io close log
+ quit
