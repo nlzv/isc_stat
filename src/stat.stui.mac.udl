@@ -1,5 +1,6 @@
 ROUTINE stat.stui
 #; Menu + Setting
+#include stat
 #define MenuOrderId(%1) $LG(%1,1)
 #define MenuSettingId(%1) $LG(%1,2)
 #define MenuDescription(%1) $LG(%1,3)

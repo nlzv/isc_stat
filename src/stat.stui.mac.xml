@@ -2,6 +2,7 @@
 <Export generator="Cache" version="25">
 <Routine name="stat.stui" type="MAC" languagemode="0"><![CDATA[
 #; Menu + Setting
+#include stat
 #define MenuOrderId(%1) $LG(%1,1)
 #define MenuSettingId(%1) $LG(%1,2)
 #define MenuDescription(%1) $LG(%1,3)
