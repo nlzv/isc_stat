@@ -58,7 +58,7 @@ ShowState
  W "Stat daemons",?xJID,"JID",?xPID,"PID",!
  W $TR($J("",80)," ","-"),!
  
- do ShowDaemonState("stat monitor master") 
+ do ShowDaemonState("stat monitor master")
  set dmn="cpustat" do ShowDaemonState("cpustat (all CPUs usage)")
  set dmn="diskstat" do ShowDaemonState("diskstat (disks usage)")
  set dmn="mgstat" do ShowDaemonState("mgstat (overall cache globals performance)")
@@ -75,6 +75,7 @@ ShowState
  set dmn="iostat" do ShowDaemonState("iostat")
  set dmn="vmstat" do ShowDaemonState("vmstat")
  set dmn="winnt.perf" do ShowDaemonState("windows system performance")
+ try { set dmn=$$DaemonName^stat.issyslog do ShowDaemonState("issyslog system errors log (SYSLOG)") } catch {}
 #if 0
 #; master for rooted processes
  set mstracepi=$G(^SYS("stat","strace","pi"))
@@ -151,6 +152,9 @@ EditConfig
  if $D(^rOBJ("stat.cstat")) { set item($I(item))=$LB(item)_setting("cstat") }
  if $D(setting("iscpsstat")) { set item($I(item))=$LB(item)_setting("iscpsstat") }
  if $D(^rOBJ("stat.seize")) { set item($I(item))=$LB(item)_setting("seizestat") }
+ if $D(^rOBJ("stat.issyslog")) {
+   set item($I(item))=$LB(item)_$LB("issyslog","issyslog system error log (SYSLOG)","goto:issyslogConfig","menu")
+ }
  set item($I(item))=$LB(item)_$LB("","web gateway dir or ssh:user@password:host/dir","goto:WebGWConfig","menu")
  set item($I(item))=$LB(item)_$LB("","login setting","goto:LoginSettings","menu")
  set item($I(item))=$LB(item)_$LB("","email setting","goto:EditEmailConfig","menu")
@@ -377,13 +381,24 @@ EditSftpConfig
  goto EditSftpConfig
  
 EditCpuUserLimitSettings
- kill item 
+ kill item
  set item($I(item))=$LB(item)_$LB("CpuUser.Limit","percentage limit to activate iscps",$name(^SYS("stat","cpuuser","limit")),"string",50)
  set item($I(item))=$LB(item)_$LB("CpuUser.Limit.top","top number of processes to track",$name(^SYS("stat","cpuuser","top")),"string",0)
  set item($I(item))=$LB(0)_$LB("CpuUserLimitSettings.return","return to up menu","goto:EditConfig","menu")
  $$$MenuProc
  goto EditCpuUserLimitSettings
-
+issyslogConfig
+ set runtimestate=$SYSTEM.Event.Defined($$DaemonSignal^stat.issyslog)
+ kill item
+ set item($I(item))=$LB(item)_$LB("issyslog.config","start/stop issyslog on stat start/stop",$name(^SYS("stat","issyserr","config")),"bool",0)
+ if $LG($$IsRunning^stat,1) {
+   set item($I(item))=$LB(item)_$LB("issyslog.runtime","runtime state running="_$case(runtimestate,1:"yes",0:"no"),"do:issyslogRuntimeStartStop","menu",0)
+ }
+ set item($I(item))=$LB("q")_$LB("menu.return","return to up menu","goto:EditConfig","menu")
+ $$$MenuProc
+ goto issyslogConfig
+issyslogRuntimeStartStop
+ if runtimestate=1 { do stop^stat.issyslog() } elseif runtimestate=0 { do start^stat.issyslog() } hang 1 quit
 ToolsMenu
  kill item
 #;set item($I(item))=$LB(1,"import","import packed logs into statns",,"menu")

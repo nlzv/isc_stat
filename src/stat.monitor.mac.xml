@@ -4,7 +4,7 @@
 #include stat
 
  #; master daemon
- #; keeps controlled daemons proc(daemon)=$LB(jid,pid[,usectr]) 
+ #; keeps controlled daemons proc(daemon)=$LB(jid,pid[,usectr])
  quit
  
 run()
@@ -17,7 +17,7 @@ run()
  set run=$G(^SYS("stat"),0) 
  if run=0 do $zu(9,"","stat monitor is disabaled set ^SYS(""stat"")=1") quit
 #endif 
- #; absolutely necessary settings of log dir 
+ #; absolutely necessary settings of log dir
  set logdir=$$logdir^stat.lib
  if logdir="" do $zu(9,"","stat monitor failed to run log directory is not set run d ^stat to configure") quit 
  #; check whether file might be created there
@@ -31,10 +31,10 @@ run()
  set lock=$$lock()
  #; second instance is not allowed
  lock +@lock:0
- if $test=0 { 
+ if $test=0 {
    do $zu(9,"","stat monitor exit failure to lock ^SYS(""stat.monitor"")")
-   quit 
- } 
+   quit
+ }
  
  set monevent="^stat.monitor"
  set retmonevent=$SYSTEM.Event.Create(monevent)
@@ -42,7 +42,7 @@ run()
    lock -^SYS("stat.monitor")
    do $zu(9,"","stat monitor exit abnormally, failure to create signal "_monevent)
    quit
- }   
+ }
  
  merge %debug=^SYS("stat","debug")
  set CtlGlo=$$CtlGlo^stat.lib
@@ -76,7 +76,7 @@ run()
  set h=$horolog
  set t=86400-$P(h,",",2)
  set delay=$G(^SYS("stat","interval"),1)
- set count=t\delay 
+ set count=t\delay
  
  kill proc
  
@@ -120,6 +120,7 @@ run()
  set cstat=$G(^SYS("stat","cstat"),0) if cstat=1 { do start^stat.cstat }
  set iscpsstat=$G(^SYS("stat","iscpsstat"),0) if iscpsstat=1 { do start^stat.iscps }
  set seizestat=$G(^SYS("stat","seizestat"),0) if seizestat=1 { do start^stat.seize }
+ set issyserr=$G(^SYS("stat","issyserr"),0) if issyserr=1&&($D(^rOBJ("stat.issyslog"))) { do start^stat.issyslog() }
  
  set emaildaemon=$G(@CtlGlo@("email"),0)
  if emaildaemon=1 { do start^stat.email(1) }
@@ -130,7 +131,7 @@ run()
    set cpuusertop=$G(^SYS("stat","cpuuser","top"))
    if cpuuserlimit>0&&(cpuuserlimit'>100) {
       do DynStatTokenOnUserCPUs^stat.iscps(,top,cpuuserlimit)
-   } 
+   }
  }
  if $D(^rOBJ("stat.csp.0"))&&$D(^rOBJ("stat.csp.1")) try { set ret=##class(stat.csp).startup() } catch { $$$ConLog($ZNAME_" $ZE="_$ZE) }
  
@@ -140,7 +141,7 @@ run()
  #; working loop
  for {
     
-    #; wait signals 
+    #; wait signals
     set ret=$SYSTEM.Event.WaitMsg("^stat.monitor",1)
     if $LI(ret)=1 {
       set msg=$LI(ret,2)
@@ -149,7 +150,7 @@ run()
       if cmd="stop" {
          set reason=$LG(msg,2)
          set exitreason=reason
-         set StopTimeout=$LG(msg,3) 
+         set StopTimeout=$LG(msg,3)
 #; terminate all stat processes
          do $zu(9,"","stat monitor exiting reason "_reason)
          quit
@@ -204,6 +205,7 @@ runexit
  try { if $G(iscpsstat,0)=1 do stop^stat.iscps } catch e {}
  try { if $G(seizestat,0)=1 do stop^stat.seize } catch e {}
  try { if $G(proc($$DaemonName^stat.unix.vmstat))'="" do stop^stat.unix.vmstat } catch {}
+ try { if $G(issyserr,0)=1 { do stop^stat.syslog(exitreason) } } catch {}
  if platform="linux" { if $G(proc($$DaemonName^stat.iostat.linux))'="" try { do stop^stat.iostat.linux } catch {} }
  elseif platform="aix" { if $G(proc($$DaemonName^stat.iostat.aix))'="" try { do stop^stat.iostat.aix } catch {} }
  set pi=$G(proc("strace.dw")) if pi'="" {
@@ -250,10 +252,10 @@ DaemonError
  do $zu(9,"",$zname_" exit $ZE="_$ZE)
  if %ErrorCount=1 set reason="error" goto runexit
  quit
- #; moved to ^stat  
+ #; moved to ^stat
 startup
  job run^stat.monitor
- set pid=$zchild 
+ set pid=$zchild
  quit
  #; moved to ^stat
 shutdown
@@ -282,8 +284,8 @@ stop(reason="user",force=0,timeout="") public {
          set ret=$zu(4,pid) 
          set kills=kills_$C(10)_" "_jid_":"_pid_":"_rtn_":"_ret
          kill ^SYS("stat","proc",jid)
-       }  
-     } 
+       }
+     }
    }
 #; clean daemons events 
    set event=$$DaemonEvent() if $SYSTEM.Event.Defined(event) {
@@ -310,7 +312,7 @@ stop(reason="user",force=0,timeout="") public {
    do $zu(9,"",$zname_" send stop signal to "_$$conlogname()_" failed") 
    kill procmaster do ctlgloproc^stat.lib("master",.procmaster,.n)
    if n=0 {
-   } 
+   }
    elseif n=1 {
    }
    else {
@@ -343,8 +345,8 @@ stopwait() public {
  }
  quit $LB(0)
 }
- #; msg  
- #; cmd = $LG(msg,1) 
+ #; msg
+ #; cmd = $LG(msg,1)
  #; new format $LB(cmd,sourcejid,command parameters) might be used to get answer
 DaemonEventHandler
  set sjid=$LG(msg,2)
@@ -355,7 +357,10 @@ DaemonEventHandler
  #; $LG(msg,3)=pid,$LG(msg,4)=pteuc process table entry usage count
 ehProcStart
  set $LB(,jid,pid,pteuc,daemon,event)=msg
- if daemon'="" { set proc(daemon)=$LB(jid,pid,pteuc,event) } else { $$$ConLog($ZNAME_" event "_cmd_" empty daemon name") }
+ if daemon'="" { 
+   set proc(daemon)=$LB(jid,pid,pteuc,event)
+   try { if daemon=$$DaemonName^stat.issyslog set issyserr=1 } catch{}
+ } else { $$$ConLog($ZNAME_" event "_cmd_" empty daemon name") }
  quit 
  #; send event procstart to master/monitor process
  #; ? what event is for 
@@ -365,7 +370,10 @@ procstart(jid,pid,pteuc,daemon,event="") public {
 
 ehProcEnd
  set daemon=$LG(msg,5)
- if daemon'="" kill proc(daemon)
+ if daemon'="" {
+   kill proc(daemon)
+   try { if daemon=$$DaemonName^stat.issyslog { set issyserr=0 } } catch {}
+ }
  quit
 procstop(jid,pid,pteuic,daemon) public {
  set ret=$SYSTEM.Event.Signal($$DaemonEvent(),$LB("procstop",jid,$P(pid,":",1),pteuc,daemon))
@@ -593,14 +601,14 @@ DeleteEvent() public {
 CheckRunning(CleanEvent=0) public {
  set n=0 
  set CtlGlo=$$CtlGlo^stat
- set jid="" for  { 
-    set jid=$order(@CtlGlo@("proc",jid),1,pi) quit:jid="" 
+ set jid="" for  {
+    set jid=$order(@CtlGlo@("proc",jid),1,pi) quit:jid=""
     if $LG(pi,4)="master" {
       set $LB(jid,pid,pteuc)=pi
       if $$CheckProc^stat.lib(jid,pid,pteuc) { set n=n+1 }
       else { kill @CtlGlo@("proc",jid) }
     }
- }  
+ }
  if CleanupEvent && n=0 && $SYSTEM.Event.Defined(DaemonEvent) { do $SYSTEM.Event.Delete(DaemonEvent) }
  quit n
 }

@@ -13,9 +13,21 @@ ROUTINE stat [Type=INC]
 #define SelfPteuc ($zu(61,30,$zu(61))\65536)
 #define JidPteuc(%1) ($zu(61,30,%1)\65536)
 
-#;  horolog ordered timestamp
+#; horolog ordered timestamp
 #define HOTS(%1) (86400*$P(%1,",",1)+$P(%1,",",2))
 #; cconsole log messag e
 #define ConLog(%1) do $zu(9,"",%1)
+#; cache iris consolidated macro
+#define MsgLogLevelInfo 0
+#define MsgLogInfo 0
+#define MsgLogLevelWarn 1
+#define MsgLogWarn 1
+#define MsgLogLevelError 2
+#define MsgLogError 2
+#define MsgLogLevelFatal 3
+#define MsgLogFatal 3
+#; %1 text %2 error level
+#;#define MsgLog(%1,%2) do $zu(9,"",%1,0,%2)
+#define MsgLog(%text,%ErrorLevel) do $zu(9,"",%text,0,%ErrorLevel)
 #; shorting datetime for timestamp stat
 #define SHORTTS(%1) $TR(%1," :","")
