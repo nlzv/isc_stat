@@ -205,7 +205,7 @@ runexit
  try { if $G(iscpsstat,0)=1 do stop^stat.iscps } catch e {}
  try { if $G(seizestat,0)=1 do stop^stat.seize } catch e {}
  try { if $G(proc($$DaemonName^stat.unix.vmstat))'="" do stop^stat.unix.vmstat } catch {}
- try { if $G(issyserr,0)=1 { do stop^stat.syslog(exitreason) } } catch {}
+ try { if $G(issyserr,0)=1 { do stop^stat.issyslog(exitreason) } } catch {}
  if platform="linux" { if $G(proc($$DaemonName^stat.iostat.linux))'="" try { do stop^stat.iostat.linux } catch {} }
  elseif platform="aix" { if $G(proc($$DaemonName^stat.iostat.aix))'="" try { do stop^stat.iostat.aix } catch {} }
  set pi=$G(proc("strace.dw")) if pi'="" {
