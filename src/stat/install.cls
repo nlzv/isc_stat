@@ -24,7 +24,7 @@
  
  set rtnobj=##class(%Routine).%OpenId("stat.install.MAC")
  set ret=rtnobj.Compile("cd")
- do zpm^stat.install(phase,when)
+ do zpm^stat.install($G(phase),$G(when))
  if libdbro=1 {
    set libdbobj.ReadOnly=1 set retSave=libdbobj.%Save()
    if +retSave=0 { kill libdbobj quit $LB(0,"error remount lib database as read write") }
