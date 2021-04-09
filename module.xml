@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Export generator="Cache" version="25">
+ <Document name="stat.ZPM">
+  <Module>
+    <Name>stat</Name>
+    <Description>collecting os and cache/iris stat pack in one zip for day, tools</Description>
+    <Author>
+      <Person>Nick Zhokhov</Person>
+      <License>MIT</License>
+    </Author>
+    <Packaging>module</Packaging>
+    <SourcesRoot>src</SourcesRoot>
+    <Resource Name="stat.install.MAC"/>
+    <Resource Name="stat.install.CLS"/>
+    <Invoke Class="stat.install" Method="install"/>
+  </Module>
+ </Document>
+</Export>

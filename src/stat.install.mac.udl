@@ -460,3 +460,4 @@ mkTLSCliNull()
    set ret=tls.%Save()
  }
  quit
+zpm() do LoadGitZip() quit
