@@ -39,7 +39,7 @@
  else {
    merge savedrtn=^rMAC(rtn)
    try { set ret=$zpm("uninstall stat") } catch {}
-   set ^rMAC(rtn)=savertn kill savedtn
+   set ^rMAC(rtn)=savertn kill savedrtn
    set rtnobj=##class(%Routine).%OpenId("stat.install.MAC")
    set ret=rtnobj.Compile("cd")
  }
