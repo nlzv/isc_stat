@@ -20,8 +20,7 @@
    if +retSave=0 { kill libdbobj quit $LB(0,"error remount lib database as read write") }
  }
  set rtn="stat.install"
- kill ^|"%SYS"|rMAC(rtn) merge ^|"%SYS"|rMAC(rtn)=^|nspace|rMAC(rtn)
- 
+ if nspace'="%SYS" { kill ^|"%SYS"|rMAC(rtn) merge ^|"%SYS"|rMAC(rtn)=^|nspace|rMAC(rtn) }
  set rtnobj=##class(%Routine).%OpenId("stat.install.MAC")
  set ret=rtnobj.Compile("cd")
  do zpm^stat.install($G(phase),$G(when))
@@ -39,10 +38,10 @@
  else {
    merge savedrtn=^rMAC(rtn)
    try { set ret=$zpm("uninstall stat") } catch {}
-   set ^rMAC(rtn)=savertn kill savedrtn
+   merge ^rMAC(rtn)=savedrtn kill savedrtn
    set rtnobj=##class(%Routine).%OpenId("stat.install.MAC")
    set ret=rtnobj.Compile("cd")
- }
+ } 
 ]]></Implementation>
 </Method>
 </Class>
