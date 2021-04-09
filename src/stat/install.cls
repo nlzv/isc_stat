@@ -20,17 +20,29 @@
    if +retSave=0 { kill libdbobj quit $LB(0,"error remount lib database as read write") }
  }
  set rtn="stat.install"
- merge ^|"%SYS"|rMAC(rtn)=^|nspace|rMAC(rtn)
+ kill ^|"%SYS"|rMAC(rtn) merge ^|"%SYS"|rMAC(rtn)=^|nspace|rMAC(rtn)
  
  set rtnobj=##class(%Routine).%OpenId("stat.install.MAC")
  set ret=rtnobj.Compile("cd")
- do zpm^stat.install()
+ do zpm^stat.install(phase,when)
  if libdbro=1 {
    set libdbobj.ReadOnly=1 set retSave=libdbobj.%Save()
    if +retSave=0 { kill libdbobj quit $LB(0,"error remount lib database as read write") }
  }
- if nspace'="%SYS" ZN nspace
- set ret=##class(%Routine).%DeleteId(rtn)
+ if nspace'="%SYS" {
+   ZN nspace
+   set ret1=##class(%Routine).Delete(rtn_".MAC",2,1)
+   set ret2=##class(%Routine).Delete(rtn_".OBJ")
+   if '(+ret1=1&&(+ret2=1)) W "error remove "_rtn,!
+   try { set ret=$zpm("uninstall stat") } catch {}
+ }
+ else {
+   merge savedrtn=^rMAC(rtn)
+   try { set ret=$zpm("uninstall stat") } catch {}
+   set ^rMAC(rtn)=savertn kill savedtn
+   set rtnobj=##class(%Routine).%OpenId("stat.install.MAC")
+   set ret=rtnobj.Compile("cd")
+ }
 ]]></Implementation>
 </Method>
 </Class>
