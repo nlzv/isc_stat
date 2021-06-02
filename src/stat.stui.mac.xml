@@ -418,7 +418,11 @@ ToolsMenu
  set item($I(item))=$LB(item,"PackNow","generate packed stats log now","do:MkPackStats","menu")
  set item($I(item))=$LB(item,"SplitSar","split sar file by stat type","goto:ToolSplitSar","menu")
  set item($I(item))=$LB(item,"dbRandomReadTest","db random read test","do:dbRandomReadTest","menu")
- set item($I(item))=$LB(item,"iscps.runtime.settings","isc ps runtime settings","goto:ISCPSRunTimeSettings","menu")
+#; old version of iscps setting
+ if $D(^rOBJ("stat.iscps")) && 0 {
+   set item($I(item))=$LB(item,"iscps.runtime.settings","isc ps runtime settings","goto:ISCPSRunTimeSettings","menu")
+ }
+#; item is availiable only if iscps module is available
  if $D(^rOBJ("stat.iscps")) {
    set item($I(item))=$LB(item,"CPUs.User.Limit","trigger individual processes perf (Tokens,GloRefs,GloUpd,PhyRd) on CPUs user limit above","do:PSOnCPUsUserLimit","menu")
  }
