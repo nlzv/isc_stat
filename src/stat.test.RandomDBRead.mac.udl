@@ -1,0 +1,221 @@
+ROUTINE stat.test.RandomDBRead
+ #include stat
+
+ #; worker creating payload
+dbdir(dbdir,runid,gbuftrigger=0.0003)
+ $$$PROCMODTRAP
+ set ioLatencyWait=1
+ set iodtgref=$$iodtgref(runid)
+ set @(iodtgref_".wait("_$zu(61)_")")=""
+ set zu49=$zu(49,dbdir)
+ if $E(dbdir,1,2)="//" {
+    if $$unix^stat.lib {
+      set i=$F(dbdir,"/",3) if i>0 {
+        set netname=$E(dbdir,3,i-2)
+        set dbdirlocal=$E(dbdir,i,$L(dbdir))
+        open 63:"^"_netname_"^"_dbdirlocal
+      }  
+    }
+    #; windows
+ }
+ else { open 63:"^^"_dbdir }
+ set maxblks=$P(zu49,",",22)
+ set tid=$zu(133,1,$$udtmname)
+ set didtrevprecision=$G(^SYS("stat","RandomDBRead","precision"),10000)
+ set didtrevhigh=$G(^SYS("stat","RandomDBRead","high"),0.05)
+ if tid>0 {
+   set n=$zu(133,6,tid,1) set n=n-1 set mid=""
+   for i=1:1:n {
+      set minfo=$zu(133,4,tid,i+1)
+      set sfn=$P(minfo,$C(1),1)
+      if $P(minfo,$C(1),2)=dbdir { set mid=i+1 quit }
+   }
+ }
+ else { set tid="" set mid="" } 
+ set ndisk=0 set ngbuf=0 set dtgbuf=0
+ for {
+   set retevent=$SYSTEM.Event.WaitMsg("",0)
+   if $LG(retevent)=1 {
+      set msg=$LG(retevent,2) set cmd=$LG(msg,1)
+      if cmd="terminate" quit
+   }
+   set i=$random(maxblks)+1
+   set zh=$zh view i set dt=$zh-zh
+   #; reading from gbuff ~ 0.1 ms
+   if dt>gbuftrigger {
+     set ndisk=ndisk+1
+     if tid'="" && (mid'="") { set ret=$zu(133,5,tid,mid) }
+     set didt=dt*didtrevprecision\1/didtrevprecision
+     if didt>didtrevhigh set didt=didtrevhigh
+     set x=$I(didt(didt))
+  }
+  else { set ngbuf=ngbuf+1 set dtgbuf=dtgbuf+1}
+#;
+ }
+ #; save latency statistics
+ merge @(iodtgref_"("_$zu(61)_")")=didt
+ kill @(iodtgref_".wait("_$zu(61)_")")
+ quit
+DaemonError set $ztrap="" $$$ConLog($ZNAME_" $ZE="_$ZE)
+ if $G(ioLatencyWait,0)=1&&($G(runid)'="") kill @("^mtemp.stat.RandomDBRread."_runid_".ioLatency.wait("_$zu(61)_")")
+ quit 
+
+#; write log and calculate average 
+log(delay=1,count="",logdir,logprefix,logtime,listensignal=0,runid) public {
+ $$$PROCMODTRAP
+ try { if $$unix^stat.lib do sumask^stat.lib("rw-rw-r--") } catch {}
+ set tid=$zu(133,1,$$udtmname)
+ if +tid<1 W "user defined metric table is not found",! quit
+ #;if log'="" { close log open log:("NWS"):1 if $test=1 { use log } }
+ set logblksrate=logdir_logprefix_"_blksrate_"_logtime_".log"
+ if logblksrate'="" {
+   close logblksrate open logblksrate:("NWS"):1
+   if $test=1 { use logblksrate }
+ }
+ do $SYSTEM.Process.SetZEOF(1)
+ set n=$zu(133,6,tid,1) set n=n-1
+ for i=1:1:n {
+    set minfo=$zu(133,4,tid,i+1)
+    set dbdir=$P(minfo,$C(1),2)
+    W i_","_$P(minfo,$C(1),1)_","_dbdir,!
+    set dbdirs(i)=dbdir
+ }
+ for i=1:1:n set statold(i)=$zu(133,6,tid,i+1) set sum(i)=0 set vmin(i)="",vmax(i)=""
+ set istat=0 set Vmin=0,Vmax=0 set stop=0
+ if listensignal=1 {
+   set signal=$$SIGNAL
+   set ret=$SYSTEM.Event.Delete($$SIGNAL)
+   set ret=$SYSTEM.Event.Create($$SIGNAL)
+ }
+ set hstart=$h
+ for {
+    if listensignal=1 {
+       set retsignal=$SYSTEM.Event.WaitMsg(signal,delay)
+       if $LG(retsignal,1)=1 { set msg=$LG(retsignal,2) do SignalHandler }
+       if stop=1 quit
+    }
+    else { hang delay }
+    set h=$h set text=""
+    kill statnew for i=1:1:n set statnew(i)=$zu(133,6,tid,i+1)
+    if n>1 {
+      set V=0
+      for i=1:1:n { set v=statnew(i)-statold(i) 
+         if v<0 { set v=v+4294967296 }  set sum(i)=sum(i)+v set text=text_","_v set V=V+v
+         if vmin(i)="" { set vmin(i)=v } if vmax(i)="" { set vmax(i)=v }
+         if vmin(i)>v { set vmin(i)=v } if vmax(i)<v { set vmax(i)=v }
+      }
+      if Vmin="" { set Vmin=V } if Vmax="" { set Vmax=v } if Vmin>v { set Vmin=v } if Vmax<v { set Vmax=v }
+      set text=V_text
+    }
+    else {
+      set v=statnew(1)-statold(1) if v<0 { set v=v+4294967296 } set sum(1)=sum(1)+v set text=v
+      if vmin(1)="" { set vmin(1)=v } if vmax(1)="" { set vmax(1)=v }
+      if vmin(1)>v { set vmin(1)=v } if vmax(1)<v { set vmax(1)=v }
+    }
+    W $zdt(h,3)_","_text,!
+    set istat=istat+1
+    if count'="" && ( istat'<count) quit
+    kill statold merge statold=statnew
+ }
+ set hend=$h
+ set fsdlm=$$fsdlm^stat.lib
+ set logsummary=logdir_logprefix_"_summary_"_logtime_".log"
+ set logiolatency=logdir_logprefix_"_iolatency_"_logtime_".log"
+ if logblksrate'="" {
+   close logblksrate
+   $$$ConLog($ZNAME_" stop="_stop_",istat="_istat)
+   open logblksrate:("RS") use logblksrate
+   set sum=0 set q=0 for i=1:1:n set ave(i)=sum(i)/istat set sum=sum+sum(i) set q(i)=0
+   if n>1 { set ave=sum/istat }
+   for i=1:1:n read text
+   for {
+     read text quit:$zeof=-1
+     if n>1 {
+       set v=$P(text,",",2) set v=v-ave,q=v*v+q
+       for i=1:1:n set v=$P(text,",",i+2) set v=v-ave(i) set q(i)=v*v+q(i)
+     }
+     else { set v=$P(text,",",2) set v=v-ave(1) set q(1)=v*v+q(1) }
+   }
+   if n>1 { set dev=$zsqr(q/istat) }
+   for i=1:1:n set dev(i)=$zsqr(q(i)/istat)
+ }
+   #;set fsdlm=$$fsdlm^stat.lib
+   #;set pathn=$L(log,fsdlm)
+   #;set logfilename=$P(log,fsdlm,pathn)   
+   #;set path=$E(log,1,$L(log)-$L(logfilename))
+   #;set log2=path_ "summary_"_logfilename
+   #;set log=logdir_logprefix_"_"_logtime_".log"
+   #;set log2=
+ close logsummary open logsummary:("NWS") if $test { use logsummary } else { use 0 }
+ W $zdt(hstart,3)_",start",!
+ W $zdt(hend,3)_",end",!
+ W "database,AveBlks,Min,Max,deviation",!
+ use logsummary
+ if n>1 { W $case(n,1:dbdirs(1),:"all")_","_(ave+0.5)\1_","_Vmin_","_Vmax_","_(dev+0.5\1),! }
+ for i=1:1:n { W dbdirs(i)_","_(ave(i)+0.5\1)_","_vmin(i)_","_vmax(i)_","_(dev(i)+0.5\1),! }
+ use 0 close logsummary
+ #; collect latency distribution
+ set iodtgref=$$iodtgref(runid) set iodtwgref=iodtgref_".wait"
+ for { quit:$order(@iodtwgref@(""))=""  hang 1 }
+ set jid="" for {
+   set jid=$order(@iodtgref@(jid)) quit:jid=""
+   set dt="" for {
+     set dt=$order(@iodtgref@(jid,dt),1,d) quit:dt=""
+     set didt(dt)=+$G(didt(dt),0)+d
+   }
+ }
+ close logiolatency open logiolatency:("NWS") if $test { use logiolatency }
+ W "time,count",! 
+ set dt="" for {
+   set dt=$order(didt(dt),1,v) quit:dt=""
+   w dt_","_v,!
+ }
+ close logiolatency use 0
+ quit
+DaemonError set $ztrap="" set ret=$SYSTEM.Event.Delete($$SIGNAL) $$$ConLog($ZNAME_" $ZE="_$ZE) quit
+SignalHandler set cmd=$LG(msg,1) if cmd="stop" { set ret=$SYSTEM.Event.Delete(signal) set stop=1 }
+ quit
+}
+SIGNAL() public { quit "^"_$ZNAME }
+mkstat(&dbdirs,runid) public {
+ set tname=$$udtmname
+ set tid=$zu(133,1,tname)
+ set dbdir="" set n=0 for { set dbdir=$order(dbdirs(dbdir)) quit:dbdir=""  set n=n+1 }
+ set tmax=$$max(n+1+16)
+ if tmax<16 set tmax=16
+#; clean table
+ if tid<1 { set tid=$zu(133,1,tname,tmax,"srd","random dn read test") 
+   set ret=$zu(133,2,tid,1,"dbircount","number of db dir in test")
+ } 
+ set tmax=$P($zu(133,4,tid),$C(1),1)
+ 
+ #; update number of a used entry
+ set ret=$zu(133,6,tid,1,n+1)
+ set dbdir="" for i=1:1:n {
+   set ret=$zu(133,6,tid,i+1,0) /* zero counter */
+   set dbdir=$order(dbdirs(dbdir))
+   set ret=$zu(133,2,tid,i+1,""""_$P($zu(49,dbdir)/*int to string*/,",",1),dbdir)
+ }
+ quit
+}
+ #; nearest degree of 2
+max(n) public { set i=0 while n { set i=i+1 set n=n\2 } quit 2**i }
+udtmname() public { quit "randmondbreadstat" } 
+ #; counters increment 0, 1, ..., 2147483647 -> -2147483648, ..., 0
+ 
+runid() public {
+ lock +@("^mtemp.stat.RandomDBRead")
+ for i=1:1 {
+    quit:$D(@("^mtemp.stat.RandomDBRead."_i))=0
+ }
+ set @("^mtemp.stat.RandomDBRead."_i)=""
+ lock -@("^mtemp.stat.RandomDBRead")
+ quit i
+} 
+freerunid(runid) public {
+ lock +@("^mtemp.stat.RandomDBRead")
+ kill @("^mtemp.stat.RandomDBRead."_runid)
+ lock -@("^mtemp.stat.RandomDBRead")
+}
+
+iodtgref(runid) public { quit "^mtemp.stat.iodt."_runid }
