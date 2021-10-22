@@ -146,13 +146,22 @@ log(delay=1,count="",logdir,logprefix,logtime,listensignal=0,runid) public {
    #;set log2=path_ "summary_"_logfilename
    #;set log=logdir_logprefix_"_"_logtime_".log"
    #;set log2=
+ merge dbdirjobs=^mtemp.stat.dbRandomReadTest(runid)
  close logsummary open logsummary:("NWS") if $test { use logsummary } else { use 0 }
+ set d=$zu(86)
+ W "hostname="_$SYSTEM.INetInfo.LocalHostName(),!
+ W "instance="_$P(d,"*",2),!
+ W "installation dir="_$P(d,"*",1),!
  W $zdt(hstart,3)_",start",!
  W $zdt(hend,3)_",end",!
- W "database,AveBlks,Min,Max,deviation",!
+ W "database,nJobs,AveBlks,Min,Max,deviation",!
  use logsummary
  if n>1 { W $case(n,1:dbdirs(1),:"all")_","_(ave+0.5)\1_","_Vmin_","_Vmax_","_(dev+0.5\1),! }
- for i=1:1:n { W dbdirs(i)_","_(ave(i)+0.5\1)_","_vmin(i)_","_vmax(i)_","_(dev(i)+0.5\1),! }
+ for i=1:1:n {
+   set dbdir=dbdirs(i)
+   if dbdir'="" { set njobs=$G(dbdirjobs(dbdir)) } else { set njobs="" }
+   W dbdir_","_njobs_","_(ave(i)+0.5\1)_","_vmin(i)_","_vmax(i)_","_(dev(i)+0.5\1),! 
+}
  use 0 close logsummary
  #; collect latency distribution
  set iodtgref=$$iodtgref(runid) set iodtwgref=iodtgref_".wait"
@@ -171,9 +180,11 @@ log(delay=1,count="",logdir,logprefix,logtime,listensignal=0,runid) public {
    w dt_","_v,!
  }
  close logiolatency use 0
+ if $G(mainpid)'="" do $SYSTEM.Event.Signal(mainpid)
+ do $zu(9,"",$ZNAME_" mainpid="_$G(mainpid))
  quit
 DaemonError set $ztrap="" set ret=$SYSTEM.Event.Delete($$SIGNAL) $$$ConLog($ZNAME_" $ZE="_$ZE) quit
-SignalHandler set cmd=$LG(msg,1) if cmd="stop" { set ret=$SYSTEM.Event.Delete(signal) set stop=1 }
+SignalHandler set cmd=$LG(msg,1) if cmd="stop" { set ret=$SYSTEM.Event.Delete(signal) set stop=1 set mainpid=$LG(msg,2) }
  quit
 }
 SIGNAL() public { quit "^"_$ZNAME }

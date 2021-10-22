@@ -853,6 +853,7 @@ dbRandomReadTestRun
  set logtime=$$lognametime^stat.lib($h)
  set logdir=$$logdir^stat.lib
  set log=$$logdir^stat.lib_"test_RandomDBRead"_$$lognametime^stat.lib($h)_".log"
+ kill ^mtemp.stat.dbRandomReadTest(runid) merge ^mtemp.stat.dbRandomReadTest(runid)=dbdirs
 #if $$$RandomReadTestLogDebug=0
  job log^stat.test.RandomDBRead(1,time,logdir,logprefix,logtime,1,runid)
  set pidlog=$zchild
@@ -860,10 +861,11 @@ dbRandomReadTestRun
  kill proc
  set dbdir="" for {
    set dbdir=$order(dbdirs(dbdir),1,n) quit:dbdir=""
-   for j=1:1:n  {
+   for j=1:1:n {
      job dbdir^stat.test.RandomDBRead(dbdir,runid)
      set pid=$zchild
      if pid>0 { set jid=$zu(67,3,pid) set proc(jid)=pid }
+     else { W "error terminate proces "_pid_" error"_ret,! }
    }
  }
  
@@ -879,14 +881,18 @@ dbRandomReadTestRun
    set jid=$order(proc(jid),1,pid) quit:jid=""
    #;set ret=$zu(4,pid)
    set ret=$SYSTEM.Event.Signal(pid,$LB("terminate"))
-   if ret=1 W "pid=",pid,!
+   if ret=1 { W "pid=",pid,! }
+   else { W "terminate return="_ret_", pid"_pid,! }
  } 
  set hend=$h
- set ret=$SYSTEM.Event.Signal($$SIGNAL^stat.test.RandomDBRead,$LB("stop"))
+ set ret=$SYSTEM.Event.Signal($$SIGNAL^stat.test.RandomDBRead,$LB("stop",pid))
+ set ret=$SYSTEM.Event.Wait("",30)
+ if $LG(ret,1)=0 W "timeout test completion wait",!
  W "runid="_runid,!
  W "random db read test",!
  W "start "_$zdt(hstart,3),!
  W "stop  "_$zdt(hend,3),!
+ kill ^mtemp.stat.dbRandomReadTest(runid)
  do freerunid^stat.test.RandomDBRead(runid)
  W !
  quit
