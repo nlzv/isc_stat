@@ -888,8 +888,8 @@ dbRandomReadTestRun
  } 
  set hend=$h
  set ret=$SYSTEM.Event.Signal($$SIGNAL^stat.test.RandomDBRead,$LB("stop",pid))
- set ret=$SYSTEM.Event.Wait("",30)
- if $LG(ret,1)=0 W "timeout test completion wait",!
+ set ret=$SYSTEM.Event.WaitMsg("",30)
+ if +$LG(ret,1)=0 W "timeout test completion wait",!
  W "runid="_runid,!
  W "random db read test",!
  W "start "_$zdt(hstart,3),!
@@ -980,7 +980,7 @@ PSOnCPUsUserLimitApply
      }
    }
  }
- else { W "platform "_platform_" is not supported",! }
+ else { W "platform "_platform_"is not supported",! }
  quit
 PSOnCPUsUserLimitLoad
  set CPUuserLimitRuntime=$G(@CtlGlo@("CPUsUserLimit","runtime"),0)
