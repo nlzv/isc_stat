@@ -1,0 +1,392 @@
+Include %occErrors
+
+/// manager for pButtons(cache)/SystemPerformance(iris) working consistent way</br>
+/// tolerant to cache/iris restart
+/// resume mgstat after cache restart, call Collect^* because shutdown terminates auto collect
+/// optioally compress report by zip (if %Library.zip class found)
+/// It uses profile name sysstat 24 hours per 1 second.
+Class stat.SystemPerformance Extends %SYS.Task.Definition
+{
+
+Parameter TaskName = "pButtons/SystemPerformance";
+
+/// if it is empty then default mgr/pButtons of cache/iris installation<br/>
+Property LogDir As %String(CAPTION = "logs directory, default mgr/pButtons");
+
+/// compress generated report<br/>
+/// requires %Library.zip class<br/>
+Property zip As %Boolean;
+
+/// how long days to keep stat<br/>
+/// 0 means keep forever<br/>
+Property KeepDays As %Integer;
+
+Property debug As %Boolean;
+
+Method OnTask() As %Status
+{
+ do ..initProd(.prod,.ConfigGlo)
+ set runid=$G(@ConfigGlo@("profile","sysstat","runid"))
+ if runid'=""&&($D(@ConfigGlo@("run",runid))) {
+  #; unix "rw-rw--"
+  if $zversion(1)=3 do $zu(47,79)
+#; process waiting to call Collect
+   set collectpid=$G(@ConfigGlo@("run",runid,"auto"))
+#; we do it, kill process
+   if collectpid'= "" { set ret=$zu(4,collectpid) }
+   if prod="IRIS" { set ret=$$Collect^SystemPerformance(runid) } else { set ret=$$Collect^pButtons(runid) }
+   while +$P(ret,"^",1)'=1 {
+     if $P(ret,"^",2)="runid not found" quit
+     hang 1 
+     if prod="IRIS" { set ret=$$Collect^SystemPerformance(runid)} else { set ret=$$Collect^pButtons(runid) }
+   }
+   if $P(ret,"^",1)=1 { set logfile=$P(ret,"^",2) }
+   else { set logfile="" }
+   kill @ConfigGlo@("profile","sysstat","runid")
+ }
+ do ..startup()
+ if ..zip&&($G(logfile)'="") do ..compress(logfile)
+ if ..KeepDays>0 {
+    set date=$P($H,"^",1)-..KeepDays
+    set date=$zd(date,8)
+    do ..KeepDays(date)
+ }
+ quit 1
+}
+
+ClassMethod startup(duration)
+{
+ do ..initProd(.prod,.ConfigGlo)
+#; unix "rw-rw--"
+ if $zversion(1)=3 do $zu(47,79)
+#; if there is run which is not collected - collect it
+ set runid=$G(@ConfigGlo@("profile","sysstat","runid"))
+ if runid'=""&&($D(@ConfigGlo@("run",runid))) {
+   set h=$G(@ConfigGlo@("run",runid,"end"))
+   if h'=""&&(($P($h,",",1)*86400+$P($h,",",1))>($P($h,",",1)*86400+$P($h,",",1))) {
+     if prod="IRIS" { set ret=$$Collect^SystemPerformance(runid) }
+     else { set ret=$$Collect^pButtons(runid) }
+   }
+ }
+ do ..initprofile(ConfigGlo)
+ set h=$H
+#; grace parameter
+ set pButtonsGraceTime=120
+ if +$G(duration,0)>0 {
+   if duration>pButtonsGraceTime { set samples=duration-pButtonsGraceTime }
+   else { set samples=duration }
+ }
+ else { set samples=86400-$P(h,",",2) - pButtonsGraceTime }
+ 
+ 
+ set ret=..getTaskSettings(.settings)
+ if +ret=1 { set LogDir=$G(settings("LogDir")) }
+ else { set LogDir="" }
+ if $G(LogDir)="" set LogDir=$zu(12)_$case(prod,"Cache":"pButtons","IRIS":"SystemPerformance",:"")
+ 
+ if '##class(%File).Exists(LogDir) {
+   set ret=##class(%File).CreateDirectoryChain(LogDir)
+   if ret'=1 do $zu(9,"",..%ClassName(1)_" failed to create dir "_LogDir) quit
+ }
+ if $D(@ConfigGlo@("logdir")) { set savedlogdir=@ConfigGlo@("logdir") }
+ set @ConfigGlo@("logdir")=LogDir
+ set runid=$G(@ConfigGlo@("profile","sysstat","runid"))
+ #; needs cleanup from previous run
+ if runid'="" {
+   kill @ConfigGlo@("profile","sysstat","runid")
+ }
+ set $LI(@ConfigGlo@("profile","sysstat"),3)=samples
+ if prod="IRIS" { set runid=$$run^SystemPerformance("sysstat") }
+ else { set runid=$$run^pButtons("sysstat") }
+ if runid'=0 {
+    set @ConfigGlo@("profile","sysstat","runid")=runid
+    do ..FindSiblingProcs($J)
+    set collectpid=$G(@ConfigGlo@("run",runid,"auto"))
+#; kill collect process
+    if collectpid'="" { set ret=$zu(4,collectpid) if +ret=1 { kill @ConfigGlo@("run",runid,"auto") } }
+ }
+ #;set $LI(^pButtons("profile","sysstat"),3)=86400-$P($h,",",2)
+ if $D(savedlogdir) { set @ConfigGlo@("logdir")=savedlogdir }
+ else { kill @ConfigGlo@("logdir") }
+}
+
+ClassMethod stopdown()
+{
+ do ..initProd(.prod,.ConfigGlo)
+ #; unix "rw-rw--"
+ if $zversion(1)=3 do $zu(47,79)
+ set runid=$G(@ConfigGlo@("profile","sysstat","runid"))
+ if runid'="" {
+   if prod="IRIS" { set retCollect=$$Preview^SystemPerformance(runid) }
+   else { set retCollect=$$Preview^pButtons(runid) }
+#; exclude cache/iris process from terminate process list
+   set pid="" for {
+      set pid=$order(@ConfigGlo@("profile","sysstat","runid","procs",pid)) quit:pid=""
+      if $zu(67,pid)'=0 {
+        kill @ConfigGlo@("profile","sysstat","runid","procs",pid)
+      }
+   }
+   if prod="IRIS" { set retStop=$$Stop^SystemPerformance(runid,1) }
+   else { set retStop=$$Stop^pButtons(runid,1) }
+#; child procs are used in unix
+   if $zversion=3 do ..KillSiblingsProcs()
+   kill @ConfigGlo@("profile","sysstat","runid")
+ }
+}
+
+/// all processes involved in collecting stat
+ClassMethod FindSiblingProcs(mpid)
+{
+ if $zversion(1)=3 { do ..FindSiblingProcsLinux(mpid) }
+ elseif $zversion(1)=2 { do ..FindSiblingProcsWinNT(mpid) }
+}
+
+ClassMethod FindSiblingProcsLinux(mpid)
+{
+ set base="/proc" set dpat=base_"/*"
+ do ..initProd(.prod,.ConfigGlo)
+ set d=$ZSEARCH(dpat)
+ if d'="" {
+   for {
+     if $zu(12,d,2)'="" {
+       set f1=$P(d,"/",3) if f1?1.N {
+         set f=d_"/stat" open f:("RUK\RAW\") use f read s use 0 close f
+         #;set f=d_"/cmdline" open f:("RUK\RAW\") use f read cmdline#4 use 0 close f
+         set pid=$P(s," ",1) set ppid=$P(s," ",4)
+         set child(ppid,pid)="" ;cmdline
+       }
+     }
+     set d=$ZSEARCH("") if d="" quit
+   }
+ }
+ do ..FindSiblingProcs2(mpid,.child,.siblings)
+ set pid="" for {
+   set pid=$order(siblings(pid)) quit:pid=""
+   set f="/proc/"_pid_"/cmdline"
+   try { open f:("RUK\RAW\") use f read cmdline use 0 close f } catch e { set cmdline=""}
+   set @ConfigGlo@("profile","sysstat","runid","procs",pid)=cmdline
+ }
+}
+
+ClassMethod FindSiblingProcs2(pid, child, siblings)
+{
+ set i="" for  { set i=$order(child(pid,i),1,d) quit:i=""
+   set siblings(i)=""
+   do ..FindSiblingProcs2(i,.child,.siblings)
+ }
+}
+
+/// cpipe: there is problem for file BOM 2 bytes flags (FF FE Little Unicode), then unicode<br/>
+/// this idiom works, but what cache read doesn't match content of file<br/>
+/// unclear question reading unicode by eight bit cache
+ClassMethod FindSiblingProcsWinNT(mpid)
+{
+ do ..initProd(.prod,.ConfigGlo)
+#; CommandLine property might have , inside this breaks CSV parsing
+ set cmd="wmic process get ProcessId,ParentProcessId,Name /FORMAT:CSV"
+ set dev="|CPIPE|ps"
+ set oldeof=$SYSTEM.Process.SetZEOF(1)
+ set io=$io open dev:(cmd:/QUEUE:/READ) use dev 
+ for { read header quit:$zeof=-1  if header'="" quit }
+ if header="" { break  goto exit }
+ if $P(header,",",1)'="Node" { break  goto exit }
+ set n=$L(header,",")
+ 
+ for i=1:1:n { set name=$P(header,",",i) if name'="" { set namei(name)=i } }
+ set ipid=$G(namei("ProcessId"))
+ set ippid=$G(namei("ParentProcessId"))
+ if ipid=""||(ippid="") {  break  goto exit }
+ set i=1 for {
+   read text quit:$zeof=-1
+   if text="" continue
+   set pid=$P(text,",",ipid)
+   set ppid=$P(text,",",ippid)
+   set child(ppid,pid)=""
+ } 
+exit  
+ use io close dev
+ if $D(child) { 
+   do ..FindSiblingProcs2(mpid,.child,.siblings) 
+   set pid="" for {
+     set pid=$order(siblings(pid)) quit:pid=""
+     set @ConfigGlo@("profile","sysstat","runid","procs",pid)=""
+   }
+ }
+ do $SYSTEM.Process.SetZEOF(oldeof)
+}
+
+ClassMethod KillSiblingsProcs()
+{
+ if $zversion(1)=3 do ..KillSiblingProcsLinux()
+}
+
+ClassMethod KillSiblingProcsLinux()
+{
+ do ..initProd(.prod,.ConfigGlo)
+ set pids="" set pid="" for {
+   set pid=$order(@ConfigGlo@("profile","sysstat","runid","procs",pid)) quit:pid=""
+   set pids=pids_" "_pid
+ }
+ set cmd="kill"_pids
+ set dev="|CPIPE|kill"
+ set oldeof=$SYSTEM.Process.SetZEOF(1)
+ set i=1 set io=$io open dev:(cmd:"QR") use dev for { read cmdout quit:$zeof=-1  /* set cmdout(i)=cmdout use io w cmdout,! use dev */ }
+ use io close dev do $SYSTEM.Process.SetZEOF(oldeof)
+}
+
+/// use TaskKill command line<br/>
+/// not completed, just idea
+ClassMethod KillSiblingProcsWinNT()
+{
+ set cmd="TaskKill /P"
+ quit
+}
+
+ClassMethod initprofile(ConfigGlo)
+{
+ if '$D(@ConfigGlo@("profile","sysstat")) {
+   set @ConfigGlo@("profile","sysstat")=$LB("sysstat 24 hours sampling every 1 seconds",1,24*3600)
+ }
+}
+
+ClassMethod initProd(prod, ConfigGlo)
+{
+ set prod=$P($SYSTEM.Version.GetProduct()," ")
+ if prod="IRIS" { set ConfigGlo="^IRIS.SystemPerformance" }
+ else { set ConfigGlo="^pButtons" }
+}
+
+/// compress report file, compressed file has additional .zip postfix<br/>
+/// if compress is ok then delete original file<br/>
+ClassMethod compress(logfile)
+{
+ set ok=1 try { set zip=##class(%zip).%New() } catch { set ok=0 }
+ if ok=0 quit
+ set zip.packfile=logfile_".zip"
+ set fsdlm=$E($zu(12),*)
+ set zip.SourceDir=$P(logfile,fsdlm,$L(logfile,fsdlm)-1)
+ set zip.files(1)=$P(logfile,fsdlm,$L(logfile,fsdlm))
+ set ok=1 try { do zip.pack() } catch { set ok=0 do $zu(9,"",..%ClassName(1)_"$ZE="_$ZE) }
+ if ok do ##class(%File).%Delete(logfile)
+}
+
+/// delete out of keep days files
+/// keepday 1st keep day in YYYYMMDD format
+ClassMethod KeepDays(keepday)
+{
+ set fsdlm=$E($zu(12),*)
+ set hostname=$SYSTEM.INetInfo.LocalHostName()
+ set instance=$P($zu(86),"*",2)
+ set prefix=hostname_"_"_instance_"_"
+ set prefixlen=$L(prefix)
+ set ret=..getTaskSettings(.settings)
+ if +ret=1 { set LogDir=$G(Settings("LogDir")) }
+ else { set LogDir=""}
+ if LogDir="" {
+   set prod=$P($SYSTEM.Version.GetProduct()," ")
+   set LogDir=$zu(12)_$case(prod,"Cache":"pButtons","IRIS":"SystemPerformance",:"")
+ }
+ set f=$ZSEARCH(LogDir_fsdlm_"*")
+ if f'="" {
+   for {
+     set fn=$P(f,fsdlm,$L(f,fsdlm))
+     if fn?8N1"_"6N1"_sysstat_"1.N1"."0.E {
+       set d=$E(fn,1,8)
+       if +d<+keepday set ret=##class(%File).%Delete(f)
+     }
+     if $E(fn,1,prefixlen)=prefix {
+       set d=$E(fn,prefixlen+1,prefixlen+8)
+       if +d<+keepday set ret=##class(%File).%Delete(f)
+     }
+     set f=$ZSEARCH("")
+     if f="" quit
+   }
+ }
+}
+
+ClassMethod getTaskSettings(ByRef settings As %String) As %Status
+{
+ do ..initProd(.prod,.ConfigGlo) set taskname=$E(ConfigGlo,2,*)
+ set taskid=##class(%SYS.Task).FindId(taskname)
+ if taskid="" quit $SYSTEM.Status.Error($$$GeneralError,"")
+ set task=##class(%SYS.Task).%OpenId(taskid)
+ set settings=task.Settings
+ set lp=0 set i=0 while $listnext(settings,lp,v) {
+   set i=i+1
+   if i#2=1 { set name=v continue }
+   elseif name'="" { set settings(name)=v }
+ }
+ quit $$$OK
+}
+
+ClassMethod installSystemTask()
+{
+ do ..initProd(.prod,.ConfigGlo) set taskname=$E(ConfigGlo,2,*)	
+ set taskid=##class(%SYS.Task).FindId(taskname)
+ if taskid="" { set task=##class(%SYS.Task).%New() }
+ else { set task=##class(%SYS.Task).%OpenId(taskid) }
+ set task.Name=taskname
+ set task.TaskClass="stat.SystemPerformance"
+ set task.TimePeriodEvery=1
+ set task.Type=0
+ set task.Description="collecting cache/iris and os performance stat using pButtons/SystemPerformance"
+ set retSave=task.%Save()
+ do ..initprofile(ConfigGlo)
+}
+
+ClassMethod uninstallSystemTask()
+{
+ do ..initProd(.prod,.ConfigGlo) set taskname=$E(ConfigGlo,2,*)	
+ set taskid=##class(%SYS.Task).FindId(taskname)
+ if taskid'="" {
+   set retDelete=##class(%SYS.Task).%DeleteId(taskid)
+ }
+}
+
+ClassMethod testCollect()
+{
+ do ..initProd(.prod,.ConfigGlo)
+ set runid=$G(^pButtons("profile","sysstat","runid"))
+ if runid'="" {
+   if prod="IRIS" { set ret=$$Collect^SystemPerformance(runid)} else { set ret=$$Collect^pButtons(runid) }
+   while +$P(ret,"^",1)'=1 {
+     hang 1
+     if prod="IRIS" { set ret=$$Collect^SystemPerformance(runid)} else { set ret=$$Collect^pButtons(runid) }     
+   }
+   do $zu(9,"","SystemPerforamce ret="_ret)
+   kill @ConfigGlo@("profile","sysstat","runid")
+ }
+ quit
+}
+
+ClassMethod testEnd()
+{
+ do ..initProd(.prod,.ConfigGlo)
+ set runid=$G(@ConfigGlo@("profile","sysstat","runid"))
+ if runid'=""&&($D(@ConfigGlo@("run",runid))) {
+    set h=$G(@ConfigGlo@("run",runid,"end"))
+    quit $zdt(h,3)
+ }
+ quit ""
+}
+
+ClassMethod testSiblingProcsWinNT()
+{
+#; CommandLine property might have , inside this breaks CSV parsing
+ set cmd="wmic process get ProcessId,ParentProcessId,Name /FORMAT:CSV"
+ set dev="|CPIPE|ps"
+ set oldeof=$SYSTEM.Process.SetZEOF(1)
+ #;set io=$io open dev:(cmd:/QUEUE:/READ:/IOTABLE:"UnicodeLittle") use dev 
+ set io=$io open dev:(cmd:/QUEUE:/READ:/IOTABLE:"RAW") use dev 
+ set i=1 for {
+   read text quit:$zeof=-1
+   set text(i)=text
+   set i=i+1
+ } 
+ use io close dev
+ B
+ do $SYSTEM.Process.SetZEOF(oldeof)
+}
+
+}
+
