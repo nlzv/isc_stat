@@ -859,7 +859,7 @@ dbRandomReadTestRun
 #if $$$RandomReadTestLogDebug=0
  job log^stat.test.RandomDBRead(1,time,logdir,logprefix,logtime,1,runid)
  set pidlog=$zchild
-#endif 
+#endif
  kill proc
  set dbdir="" for {
    set dbdir=$order(dbdirs(dbdir),1,n) quit:dbdir=""
@@ -1080,18 +1080,27 @@ WebGWtoPerfCSV1
  quit
 ToolMgstatWDReport
  W "generate wd report on mgstat log",!
+ W "empty file name - doesn't generate this report",!
  if $D(^rOBJ("%zreadline")) {
    do get^%zreadline("mgstat log file>",.wdmgstatlog,.wdmgstatlogOffset,.InsertMode,"FS",.action) W ! if $G(action)=0 quit
    do get^%zreadline("annotated report>",.wdmgstatlogAnnotated,.wdmgstatlogAnnotatedOffset,.InsertMode,"FS",.action) W ! if $G(action)=0 quit
    do get^%zreadline("summary report>",.wdmgstatlogSummary,.wdmgstatlogSummaryOffset,.InsertMode,"FS",.action) W ! if action=0 quit
  }
  else {
+   R "mstat log file>",wdmsgstatlof,!
+   R "annotated report>",wdmgstatlogAnnotated,!
+   R "summary report>",wdmgstatlogSummary,!
  }
 ToolMgstatWDReportJrn
+#if 0
  R "journal option Yy1|Nn0>",wdmgstatReportJrn,!
  if '"Yy1Nn0"[wdmgstatReportJrn goto ToolMgstatWDReportJrn
  set wdmgstatReportJrn=$case($E(wdmgstatReportJrn,1),"Y":1,"y":1,1:1,"N":0,"n":0,0:0,:0)
- do Report^stat.wd(wdmgstatlog,wdmgstatlogAnnotated,wdmgstatlogSummary,)
+#else
+ set wdmgstatReportJrn=1
+#endif
+ set ret=$$Report^stat.wd(wdmgstatlog,wdmgstatlogAnnotated,wdmgstatlogSummary,wdmgstatReportJrn)
+ if +$LG(ret,1)=0 W $LG(ret,2),!
  quit
 ]]></Routine>
 </Export>
