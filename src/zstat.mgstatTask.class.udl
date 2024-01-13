@@ -1,0 +1,280 @@
+Include %occErrors
+
+Class zstat.mgstatTask Extends %SYS.Task.Definition
+{
+
+Parameter TaskName = "mgstatSysTask";
+
+/// time between samples in seconds, default 1 second<br/>
+Property rate As %Integer(CAPTION = "seconds between samples, default 1");
+
+/// if it is empty then default mgr/pButtons of cache/iris installation<br/>
+Property LogDir As %String(CAPTION = "logs directory, default instance mgr");
+
+/// compress mgstat log after it completion for time period<br/>
+/// requires %Library.zip class<br/>
+Property zip As %Boolean(CAPTION = "zip log");
+
+/// remove spaces adjusment in mgstat before possible compression
+Property removeAdjustSpaces As %Boolean(CAPTION = "remove adjust spaces");
+
+/// how long days to keep mgstat logs<br/>
+/// 0 means keep forever<br/>
+Property KeepDays As %Integer(CAPTION = "days to keep logs, 0/'' keep forever");
+
+Method OnTask() As %Status
+{
+ set $ztrap="error"
+ if ..rate="" { set delay=1 }
+ else { set delay=..rate }
+ set count=86400-$piece($h,",",2)/delay\1
+ set fsdlm=$E($zu(12),*)
+ set logdir=..LogDir
+ if $G(logdir)="" set logdir=$zu(12)
+ if $E(logdir,*)'=fsdlm set logdir=logdir_fsdlm
+ if '##class(%File).DirectoryExists(logdir) { quit $SYSTEM.Status.Error($$$GeneralError,"no logdir") }
+ set logfile="mgstat."_..logname($h)_".log"
+ set logfpfile=logdir_logfile
+#; check file might be created
+ if '..checkLogWriting(logfpfile) { quit $SYSTEM.Status.Error($$$GeneralError,"log file error create or writing") }
+ do ..findTaskId($this,.taskid)
+ if taskid="" quit $SYSTEM.Status.Error($$$GeneralError,"failed to find task id")
+ set rmspaces=..removeAdjustSpaces
+ set zip=..zip
+ set keepdays=..KeepDays
+ if zip=1 && '$D(^rOBJ("%Library.zip.1")) { set zip=0 }
+ job ..mgstat(delay,count,logfpfile,taskid,keepdays,rmspaces,zip)
+ set zchild=$zchild
+ if zchild>0 { quit 1 }
+ else { quit $SYSTEM.Status.Error($$$GeneralError,"mgstat job failure") }
+error
+ set $ztrap="" quit $SYSTEM.Status.Error($$$GeneralError,"$ZE="_$ZE)
+}
+
+/// mgstat wrapper for post processing of the log<br/>
+ClassMethod mgstat(delay, count, logfile, taskid, keepdays, rmspaces, zip)
+{
+ set $ztrap="error"
+ set %debug=0
+ if $G(%debug,0)=1 { 
+   do $zu(9,"",..%ClassName(1)_" delay="_delay_",count="_count_
+      ",taskid="_taskid_",keepdays="_$G(keepdays)_",rmspaces="_$G(rmspaces)_",zip="_$G(zip)_
+      ",logfile="_$G(logfile)
+   )
+ }
+#; unix set more reasonable file mode
+ if $zversion(1)=3 { set oldumask=$zu(47,79) }
+#; public vars !
+ do ^mgstat(delay,count,logfile)
+ if +$G(rmspaces,0)=1 {
+   if $G(%debug,0)=1 { do $zu(9,"",..%ClassName(1)_" transform") }
+   set ret=..transform(logfile)
+   if $LG(ret,1)'=1 do $zu(9,"",..%ClassName(1)_" error "_$LG(ret,2)_$case($LG(ret,2)="$ZE",1:"="_$LG(ret,3)),0,1)
+ }
+#; zip 
+ if $G(zip,0)=1 {
+   set ret=..zip(logfile,.logfilenew)
+   if $LG(ret,1)=1 {
+     set ret=##class(%File).Delete(logfile,.retout)
+     set logfile=logfilenew
+   }
+   elseif $LG(ret,2)="$ZE" {
+     do $zu(9,"",..%ClassName(1)_":zip() $ZE="_$LG(ret,3),0,2)
+   }
+ }
+#; register log
+ set ^|"^^"_$ZU(12)|SYS("Task","TaskD",taskid,1,logfile)=""
+#; removeold 
+ if +keepdays'=0 { do ..RemoveOld(taskid,+keepdays) }
+ quit
+error
+ set $ztrap=""
+ do $zu(9,"",..%ClassName(1)_":mgstat() $ZE="_$ZE,0,2)
+ quit
+}
+
+/// transform log, defat spaces<br/>
+ClassMethod transform(logfile)
+{
+ set $ztrap="error"
+ set io=$io
+ set logout=logfile_".tmp"
+ set oldeof=$SYSTEM.Process.SetZEOF(1)
+ try { close logfile } catch {}
+ open logfile:("RS"):1 if $test'=1 { quit $LB(0,"open in file") }
+ try { close logout } catch {}
+ open logout:("NWs") if $test'=1 { close logfile quit $LB(0,"create out file") }
+ use logfile read tx
+ use logout write tx
+ for {
+   use logfile read tx quit:$zeof=-1
+   set txout=$translate(tx," ","")
+   use logout write txout,!
+ }
+ set retdel=##class(%File).Delete(logfile,.retout)
+ set retmv=##class(%File).Rename(logout,logfile,.retout)
+ use io close logfile close logout
+ quit $LB(1)
+error
+ set $ztrap="" quit $LB(0,"$ZE",$ZE)
+}
+
+ClassMethod RemoveOld(taskid, KeepDays)
+{
+ set $ztrap="error"
+ set fsdlm=$E($zu(12),*)
+ set KeepsDays=KeepDays\1
+ if KeepsDays=0 { set hdlmt="" }
+ else { set hdlmt=$P($h,",",1)-KeepsDays }
+ set logfile="" for {
+   set logfile=$order(^|"^^"_$ZU(12)|SYS("Task","TaskD",taskid,1,logfile)) quit:logfile=""
+#; extract day part
+    set filename=$P(logfile,fsdlm,$L(logfile,fsdlm))
+    set t=$P(filename,".",2)
+    set y=$E(t,1,4)
+    set m=$E(t,6,7)
+    set d=$E(t,9,10)
+    try { set hd=$zdateh(y_m_d,8) } catch { continue }
+    if hdlmt="" || (hd<hdlmt) {
+      set retExist=##class(%File).Exists(logfile)
+      if retExist {
+        set retDelete=##class(%File).Delete(logfile,.outret)
+#; remove from log of mgstat logs
+      }
+      kill ^|"^^"_$ZU(12)|SYS("Task","TaskD",taskid,1,logfile)
+    }
+ }
+ quit
+error
+ set $ztrap="" do $zu(9,"",..%ClassName(1)_":RemoveOld() $ZE="_$ZE,0,2)
+ quit
+}
+
+/// yyyy_mm_dd_hh_mm_ss</br>
+ClassMethod logname(h) As %String
+{
+ quit $tr($zdt(h,3)," :-","___")
+}
+
+ClassMethod findTaskId(self, ByRef taskid)
+{
+ set taskid="" set o="" for {
+   set o=$zobjnext(o) quit:o=""
+   if $classname(o)="%SYS.Task" {
+     if o.TaskClass=$this { set taskobj=o }
+   }
+ }
+ if $isobject(taskobj) {
+   set taskid=taskobj.%Id()
+#;   do $zu(9,"","mgstatSysTask taskid="_taskobj.%Id())
+ }
+}
+
+ClassMethod zip(logfile, ByRef logfilenew)
+{
+ set $ztrap="error"
+ set fsdlm=$E($zu(12),*)
+ set n=$L(logfile,fsdlm)
+ set filename=$P(logfile,fsdlm,n)
+ set logdir=$E(logfile,1,$L(logfile)-$L(filename))
+ set logfilenew=logfile_".zip"
+ set filenamenew=filename_".zip"
+ set zip=##class(%Library.zip).%New()
+ 
+ set zip.SourceDir=logdir
+ set zip.packfile=logfilenew
+ set zip.files(1)=filename
+ do zip.pack()
+ quit $LB(1)
+error
+ set $ztrap="" quit $LB(0,"$ZE",$ZE)
+}
+
+ClassMethod checkLogWriting(logfile, err) As %Boolean
+{
+ set $ztrap="error" set err=0
+ open logfile:("NWS"):1 if $test'=1 { quit 0 }
+ use logfile write "test",!
+ close logfile
+ set ret=##class(%File).Delete(logfile)
+ quit 1
+error
+ set $ztrap="" quit 0
+}
+
+ClassMethod install()
+{
+ set taskid=""
+ set classname=..%ClassName(1)
+ set taskn=0
+#; traverse all system tasks
+ set id="" for {
+   set id=$order(^|"^^"_$ZU(12)|SYS("Task","TaskD",id),1,d) quit:id=""
+   if $LI(d,15)=classname set taskid=id set taskn=taskn+1
+ }
+ if taskid'="" {
+   W "system task for mgstat with task class "_classname_" already exists",!
+   R "do you want to create another one?01YyNn>",answer,!
+   if "0Nn"[answer quit
+ }
+
+ set task=##class(%SYS.Task).%New()
+ set task.Name="mgstatTask"_$case(taskn,0:"",:taskn)
+ set task.Description="collecting mgstat"
+ set task.TaskClass=classname
+#; run daily at mightnight
+ set task.TimePeriod=0
+ set task.TimePeriodEvery=1
+ set task.DailyFrequency=0
+ set task.DailyStartTime="5"
+ set ret=task.%Save()
+ set taskid=task.%Id()
+ if +ret=1 { W "task for mgstat is created with taskid=",taskid,! }
+ else {
+   W "task for mgstat is failed",! 
+   kill errtext do $SYSTEM.Status.DecomposeStatus(ret,.errtext,,"en")
+   W errtext(1),!
+ }
+}
+
+ClassMethod uninstall()
+{
+ set classname=..%ClassName(1)
+#; traverse all system tasks
+ set id="" for {
+   set id=$order(^|"^^"_$ZU(12)|SYS("Task","TaskD",id),1,d) quit:id=""
+   if $LI(d,15)=classname {
+     set ret=##class(%SYS.Task).%DeleteId(id)
+     W "remove taskid="_id
+     if ret=1 {  W " ok",! }
+     else {
+       kill errtext do $SYSTEM.Status.DecomposeStatus(ret,.errtext,,"en")
+       W "error",!," ",errtext(1),!
+     }
+   }
+ }
+}
+
+ClassMethod ShowLogs(taskid)
+{
+ set logfile="" for {
+   set logfile=$order(^|"^^"_$ZU(12)|SYS("Task","TaskD",taskid,1,logfile)) quit:logfile=""
+   W logfile,!
+ }
+}
+
+ClassMethod testerror()
+{
+ W "before"
+ do $SYSTEM.Status.DisplayError($SYSTEM.Status.Error(5001,"test"))
+ W !,"after"
+}
+
+/// if KeepDays = 0 remove all logs, besides one is writing currently.
+ClassMethod PurgeLogs(taskid, KeepDays)
+{
+ do ..RemoveOld(taskid,KeepDays)
+}
+
+}
+
